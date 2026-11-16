@@ -1,0 +1,10 @@
+split,detector,tp,fp,fn,mAP50,precision,recall,f1_score,mean_inference_ms,fps
+normal,orb_baseline,90,2,47,0.6828,0.9783,0.6569,0.786,307.56,3.25
+normal,sift_baseline,111,0,26,0.8437,1.0,0.8102,0.8952,132.89,7.53
+normal,yolov8n_finetuned,129,5,8,0.9516,0.9627,0.9416,0.952,74.84,13.36
+shadowed_sub100lux,orb_baseline,63,4,74,0.4486,0.9403,0.4599,0.6176,297.08,3.37
+shadowed_sub100lux,sift_baseline,81,2,56,0.6046,0.9759,0.5912,0.7364,97.89,10.22
+shadowed_sub100lux,yolov8n_finetuned,112,17,25,0.8276,0.8682,0.8175,0.8421,44.54,22.45
+occluded_20_50pct,orb_baseline,50,2,87,0.372,0.9615,0.365,0.5291,326.35,3.06
+occluded_20_50pct,sift_baseline,79,3,58,0.5948,0.9634,0.5766,0.7215,106.63,9.38
+occluded_20_50pct,yolov8n_finetuned,100,39,37,0.7254,0.7194,0.7299,0.7246,57.98,17.25

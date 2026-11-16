@@ -1,0 +1,352 @@
+{
+  "data_yaml": "data/dataset_yolo/data.yaml",
+  "num_test_images": 40,
+  "num_gt_boxes": 137,
+  "conf_threshold": 0.45,
+  "iou_threshold": 0.5,
+  "weights_path": "C:\\Users\\AronicMoe\\Documents\\Projects\\stock2stove\\models\\yolov8n_stock2stove.pt",
+  "splits": [
+    "normal",
+    "shadowed_sub100lux",
+    "occluded_20_50pct"
+  ],
+  "detectors": [
+    "orb_baseline",
+    "sift_baseline",
+    "yolov8n_finetuned"
+  ],
+  "results": [
+    {
+      "split": "normal",
+      "detector": "orb_baseline",
+      "tp": 90,
+      "fp": 2,
+      "fn": 47,
+      "mAP50": 0.6828,
+      "precision": 0.9783,
+      "recall": 0.6569,
+      "f1_score": 0.786,
+      "mean_inference_ms": 307.56,
+      "fps": 3.25
+    },
+    {
+      "split": "normal",
+      "detector": "sift_baseline",
+      "tp": 111,
+      "fp": 0,
+      "fn": 26,
+      "mAP50": 0.8437,
+      "precision": 1.0,
+      "recall": 0.8102,
+      "f1_score": 0.8952,
+      "mean_inference_ms": 132.89,
+      "fps": 7.53
+    },
+    {
+      "split": "normal",
+      "detector": "yolov8n_finetuned",
+      "tp": 129,
+      "fp": 5,
+      "fn": 8,
+      "mAP50": 0.9516,
+      "precision": 0.9627,
+      "recall": 0.9416,
+      "f1_score": 0.952,
+      "mean_inference_ms": 74.84,
+      "fps": 13.36
+    },
+    {
+      "split": "shadowed_sub100lux",
+      "detector": "orb_baseline",
+      "tp": 63,
+      "fp": 4,
+      "fn": 74,
+      "mAP50": 0.4486,
+      "precision": 0.9403,
+      "recall": 0.4599,
+      "f1_score": 0.6176,
+      "mean_inference_ms": 297.08,
+      "fps": 3.37
+    },
+    {
+      "split": "shadowed_sub100lux",
+      "detector": "sift_baseline",
+      "tp": 81,
+      "fp": 2,
+      "fn": 56,
+      "mAP50": 0.6046,
+      "precision": 0.9759,
+      "recall": 0.5912,
+      "f1_score": 0.7364,
+      "mean_inference_ms": 97.89,
+      "fps": 10.22
+    },
+    {
+      "split": "shadowed_sub100lux",
+      "detector": "yolov8n_finetuned",
+      "tp": 112,
+      "fp": 17,
+      "fn": 25,
+      "mAP50": 0.8276,
+      "precision": 0.8682,
+      "recall": 0.8175,
+      "f1_score": 0.8421,
+      "mean_inference_ms": 44.54,
+      "fps": 22.45
+    },
+    {
+      "split": "occluded_20_50pct",
+      "detector": "orb_baseline",
+      "tp": 50,
+      "fp": 2,
+      "fn": 87,
+      "mAP50": 0.372,
+      "precision": 0.9615,
+      "recall": 0.365,
+      "f1_score": 0.5291,
+      "mean_inference_ms": 326.35,
+      "fps": 3.06
+    },
+    {
+      "split": "occluded_20_50pct",
+      "detector": "sift_baseline",
+      "tp": 79,
+      "fp": 3,
+      "fn": 58,
+      "mAP50": 0.5948,
+      "precision": 0.9634,
+      "recall": 0.5766,
+      "f1_score": 0.7215,
+      "mean_inference_ms": 106.63,
+      "fps": 9.38
+    },
+    {
+      "split": "occluded_20_50pct",
+      "detector": "yolov8n_finetuned",
+      "tp": 100,
+      "fp": 39,
+      "fn": 37,
+      "mAP50": 0.7254,
+      "precision": 0.7194,
+      "recall": 0.7299,
+      "f1_score": 0.7246,
+      "mean_inference_ms": 57.98,
+      "fps": 17.25
+    }
+  ],
+  "by_split": {
+    "normal": {
+      "orb_baseline": {
+        "split": "normal",
+        "detector": "orb_baseline",
+        "tp": 90,
+        "fp": 2,
+        "fn": 47,
+        "mAP50": 0.6828,
+        "precision": 0.9783,
+        "recall": 0.6569,
+        "f1_score": 0.786,
+        "mean_inference_ms": 307.56,
+        "fps": 3.25,
+        "ap_per_class": {
+          "canned_tomato": 0.794872,
+          "canned_tuna_meat": 0.764706,
+          "cereal_grains": 0.866667,
+          "coffee_condiment": 1.0,
+          "eggs": 0.0625,
+          "fresh_produce": 0.518519,
+          "milk_dairy": 0.526316,
+          "pasta_noodles": 0.928571
+        }
+      },
+      "sift_baseline": {
+        "split": "normal",
+        "detector": "sift_baseline",
+        "tp": 111,
+        "fp": 0,
+        "fn": 26,
+        "mAP50": 0.8437,
+        "precision": 1.0,
+        "recall": 0.8102,
+        "f1_score": 0.8952,
+        "mean_inference_ms": 132.89,
+        "fps": 7.53,
+        "ap_per_class": {
+          "canned_tomato": 0.866667,
+          "canned_tuna_meat": 0.823529,
+          "cereal_grains": 0.866667,
+          "coffee_condiment": 1.0,
+          "eggs": 0.9375,
+          "fresh_produce": 0.518519,
+          "milk_dairy": 0.736842,
+          "pasta_noodles": 1.0
+        }
+      },
+      "yolov8n_finetuned": {
+        "split": "normal",
+        "detector": "yolov8n_finetuned",
+        "tp": 129,
+        "fp": 5,
+        "fn": 8,
+        "mAP50": 0.9516,
+        "precision": 0.9627,
+        "recall": 0.9416,
+        "f1_score": 0.952,
+        "mean_inference_ms": 74.84,
+        "fps": 13.36,
+        "ap_per_class": {
+          "canned_tomato": 0.933333,
+          "canned_tuna_meat": 0.930964,
+          "cereal_grains": 0.933333,
+          "coffee_condiment": 1.0,
+          "eggs": 1.0,
+          "fresh_produce": 0.814815,
+          "milk_dairy": 1.0,
+          "pasta_noodles": 1.0
+        }
+      }
+    },
+    "shadowed_sub100lux": {
+      "orb_baseline": {
+        "split": "shadowed_sub100lux",
+        "detector": "orb_baseline",
+        "tp": 63,
+        "fp": 4,
+        "fn": 74,
+        "mAP50": 0.4486,
+        "precision": 0.9403,
+        "recall": 0.4599,
+        "f1_score": 0.6176,
+        "mean_inference_ms": 297.08,
+        "fps": 3.37,
+        "ap_per_class": {
+          "canned_tomato": 0.466667,
+          "canned_tuna_meat": 0.147059,
+          "cereal_grains": 0.333333,
+          "coffee_condiment": 0.675325,
+          "eggs": 0.083333,
+          "fresh_produce": 0.518519,
+          "milk_dairy": 0.578947,
+          "pasta_noodles": 0.785714
+        }
+      },
+      "sift_baseline": {
+        "split": "shadowed_sub100lux",
+        "detector": "sift_baseline",
+        "tp": 81,
+        "fp": 2,
+        "fn": 56,
+        "mAP50": 0.6046,
+        "precision": 0.9759,
+        "recall": 0.5912,
+        "f1_score": 0.7364,
+        "mean_inference_ms": 97.89,
+        "fps": 10.22,
+        "ap_per_class": {
+          "canned_tomato": 0.666667,
+          "canned_tuna_meat": 0.647059,
+          "cereal_grains": 0.4,
+          "coffee_condiment": 1.0,
+          "eggs": 0.1875,
+          "fresh_produce": 0.518519,
+          "milk_dairy": 0.631579,
+          "pasta_noodles": 0.785714
+        }
+      },
+      "yolov8n_finetuned": {
+        "split": "shadowed_sub100lux",
+        "detector": "yolov8n_finetuned",
+        "tp": 112,
+        "fp": 17,
+        "fn": 25,
+        "mAP50": 0.8276,
+        "precision": 0.8682,
+        "recall": 0.8175,
+        "f1_score": 0.8421,
+        "mean_inference_ms": 44.54,
+        "fps": 22.45,
+        "ap_per_class": {
+          "canned_tomato": 0.533333,
+          "canned_tuna_meat": 0.854575,
+          "cereal_grains": 0.933333,
+          "coffee_condiment": 1.0,
+          "eggs": 0.875,
+          "fresh_produce": 0.555556,
+          "milk_dairy": 0.941828,
+          "pasta_noodles": 0.927101
+        }
+      }
+    },
+    "occluded_20_50pct": {
+      "orb_baseline": {
+        "split": "occluded_20_50pct",
+        "detector": "orb_baseline",
+        "tp": 50,
+        "fp": 2,
+        "fn": 87,
+        "mAP50": 0.372,
+        "precision": 0.9615,
+        "recall": 0.365,
+        "f1_score": 0.5291,
+        "mean_inference_ms": 326.35,
+        "fps": 3.06,
+        "ap_per_class": {
+          "canned_tomato": 0.266667,
+          "canned_tuna_meat": 0.588235,
+          "cereal_grains": 0.4,
+          "coffee_condiment": 0.571429,
+          "eggs": 0.0625,
+          "fresh_produce": 0.444444,
+          "milk_dairy": 0.0,
+          "pasta_noodles": 0.642857
+        }
+      },
+      "sift_baseline": {
+        "split": "occluded_20_50pct",
+        "detector": "sift_baseline",
+        "tp": 79,
+        "fp": 3,
+        "fn": 58,
+        "mAP50": 0.5948,
+        "precision": 0.9634,
+        "recall": 0.5766,
+        "f1_score": 0.7215,
+        "mean_inference_ms": 106.63,
+        "fps": 9.38,
+        "ap_per_class": {
+          "canned_tomato": 0.6,
+          "canned_tuna_meat": 0.823529,
+          "cereal_grains": 0.666667,
+          "coffee_condiment": 1.0,
+          "eggs": 0.221354,
+          "fresh_produce": 0.518519,
+          "milk_dairy": 0.0,
+          "pasta_noodles": 0.928571
+        }
+      },
+      "yolov8n_finetuned": {
+        "split": "occluded_20_50pct",
+        "detector": "yolov8n_finetuned",
+        "tp": 100,
+        "fp": 39,
+        "fn": 37,
+        "mAP50": 0.7254,
+        "precision": 0.7194,
+        "recall": 0.7299,
+        "f1_score": 0.7246,
+        "mean_inference_ms": 57.98,
+        "fps": 17.25,
+        "ap_per_class": {
+          "canned_tomato": 0.333333,
+          "canned_tuna_meat": 0.793651,
+          "cereal_grains": 0.866667,
+          "coffee_condiment": 0.857143,
+          "eggs": 0.9375,
+          "fresh_produce": 0.525054,
+          "milk_dairy": 0.736842,
+          "pasta_noodles": 0.753306
+        }
+      }
+    }
+  }
+}

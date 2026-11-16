@@ -8,6 +8,10 @@ venv/
 
 # Large datasets (only samples are committed)
 data/full_dataset/
+data/raw_roboflow*/
+data/auto_labeled/
+*.cache
+yolov8n.pt
 *.mp4
 *.mov
 *.avi

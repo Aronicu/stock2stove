@@ -4,3 +4,5 @@
 *.jpg filter=lfs diff=lfs merge=lfs -text
 *.jpgeg filter=lfs diff=lfs merge=lfs -text
 *.jpeg filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.onnx filter=lfs diff=lfs merge=lfs -text

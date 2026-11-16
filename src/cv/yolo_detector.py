@@ -356,11 +356,12 @@ def run_yolo_detection(
                     })
 
             deduped = apply_class_nms(detections, iou_threshold=iou_threshold)
-            return deduped, {
-                "detector_mode": normalized_mode,
-                "backend": "ultralytics",
-                "weights_path": model_path,
-            }
+            if len(deduped) > 0:
+                return deduped, {
+                    "detector_mode": normalized_mode,
+                    "backend": "ultralytics",
+                    "weights_path": model_path,
+                }
         except Exception:
             pass
 

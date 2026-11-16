@@ -348,9 +348,9 @@ After training finishes, `runs/detect/stock2stove_yolov8n/` automatically genera
 - [x] **Task 1.5 (`src/server/app.py`):** Build the FastAPI server (`WS /ws/scan`, `POST /api/v1/recipes/generate`, `POST /api/v1/scan/image`, `POST /api/v1/scan/video`, `GET /api/v1/health`) and `run_server.ps1` launcher. *(Owner: Aron & Janvher)*
 
 ### Phase 2: Hybrid Dataset Assembly & YOLOv8n Fine-Tuning
-- [ ] **Task 2.1 (`src/training/extract_frames.py` & `auto_label.py`):** Create scripts to extract frames from home pantry/fridge videos and pre-label them using `YOLO-Worldv2`. *(Owner: Allain & Aron)*
-- [ ] **Task 2.2 (`data/dataset_yolo/`):** Merge online Roboflow pantry/fridge datasets with 40–60 home frames, export YOLOv8 format, and train `yolov8n` for 50 epochs (`freeze=10`). *(Owner: Allain & Aron)*
-- [ ] **Task 2.3 (`src/training/evaluate_all.py`):** Run benchmark comparing SIFT/ORB vs. YOLOv8n across normal, shadowed (`<100 lux`), and occluded (`20–50%`) test splits. *(Owner: All Members)*
+- [x] **Task 2.1 (`src/training/extract_frames.py` & `auto_label.py`):** Create scripts to extract frames from home pantry/fridge videos and pre-label them using `YOLO-Worldv2`. *(Owner: Allain & Aron)*
+- [x] **Task 2.2 (`data/dataset_yolo/`):** Merge online Roboflow pantry/fridge datasets with 40–60 home frames, export YOLOv8 format, and train `yolov8n` for 50 epochs (`freeze=10`). *(Owner: Allain & Aron)*
+- [x] **Task 2.3 (`src/training/evaluate_all.py`):** Run benchmark comparing SIFT/ORB vs. YOLOv8n across normal, shadowed (`<100 lux`), and occluded (`20–50%`) test splits. *(Owner: All Members)*
 
 ### Phase 3: Native Android Application (`android/`)
 - [ ] **Task 3.1 (`android/` scaffold):** Initialize Kotlin + Jetpack Compose project (minSdk 26, targetSdk 34) with CameraX, OkHttp WebSocket, Retrofit, and Material 3 theme.
