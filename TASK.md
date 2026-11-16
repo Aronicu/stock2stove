@@ -353,7 +353,7 @@ After training finishes, `runs/detect/stock2stove_yolov8n/` automatically genera
 - [x] **Task 2.3 (`src/training/evaluate_all.py`):** Run benchmark comparing SIFT/ORB vs. YOLOv8n across normal, shadowed (`<100 lux`), and occluded (`20–50%`) test splits. *(Owner: All Members)*
 
 ### Phase 3: Native Android Application (`android/`)
-- [ ] **Task 3.1 (`android/` scaffold):** Initialize Kotlin + Jetpack Compose project (minSdk 26, targetSdk 34) with CameraX, OkHttp WebSocket, Retrofit, and Material 3 theme.
-- [ ] **Task 3.2 (`ui/home/`):** Build Server Connection Hub with 1-tap `USB adb reverse (127.0.0.1:8000)` and `LAN IP` presets, plus Pantry vs. Fridge scan mode selector.
-- [ ] **Task 3.3 (`ui/scanner/`):** Build Live CameraX Scanner with real-time `Canvas` bounding-box/homography overlay, 5-second progress ring, live confirmed-item chips, and the **Defense Mode Switcher (`YOLOv8n` vs `ORB Baseline` vs `CLAHE`)**.
-- [ ] **Task 3.4 (`ui/inventory/` & `ui/recipes/`):** Build Inventory Verification BottomSheet (`+`/`-` quantity edits) and the 3-card Zero-Waste Recipe Screen.
+- [x] **Task 3.1 (`android/` scaffold):** Initialize Kotlin + Jetpack Compose project (minSdk 26, targetSdk 34) with CameraX, OkHttp WebSocket, Retrofit, and Material 3 theme.
+- [x] **Task 3.2 (`ui/home/`):** Build Server Connection Hub with 1-tap `USB adb reverse (127.0.0.1:8000)` and `LAN IP` presets, plus Pantry vs. Fridge scan mode selector.
+- [x] **Task 3.3 (`ui/scanner/`):** Build Live CameraX Scanner with real-time `Canvas` bounding-box/homography overlay, 5-second progress ring, live confirmed-item chips, and the **Defense Mode Switcher (`YOLOv8n` vs `ORB Baseline` vs `CLAHE`)**.
+- [x] **Task 3.4 (`ui/inventory/` & `ui/recipes/`):** Build Inventory Verification BottomSheet (`+`/`-` quantity edits) and the 3-card Zero-Waste Recipe Screen.

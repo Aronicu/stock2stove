@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Stock-to-Stove</string>
+    <string name="scaffold_welcome">Stock-to-Stove Alpha</string>
+</resources>
