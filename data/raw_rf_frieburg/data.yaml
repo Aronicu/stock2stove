@@ -1,0 +1,14 @@
+path: C:\Users\AronicMoe\Documents\Projects\stock2stove\data\raw_rf_frieburg
+train: train/images
+val: valid/images
+test: test/images
+nc: 8
+names:
+  0: pasta_noodles
+  1: canned_tomato
+  2: canned_tuna_meat
+  3: cereal_grains
+  4: coffee_condiment
+  5: milk_dairy
+  6: eggs
+  7: fresh_produce

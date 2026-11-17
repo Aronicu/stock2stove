@@ -29,14 +29,16 @@ def ensure_expected_plots(run_dir):
 
 def train_and_export_yolo(
     data_yaml,
-    epochs=50,
+    epochs=120,
     batch=8,
     imgsz=640,
-    freeze=10,
-    patience=15,
-    base_weights="yolov8n.pt",
+    freeze=0,
+    patience=30,
+    base_weights="yolov8s.pt",
     run_name="stock2stove_yolov8n",
     export_onnx=True,
+    close_mosaic=15,
+    seed=0,
 ):
     from ultralytics import YOLO
 
@@ -58,6 +60,8 @@ def train_and_export_yolo(
         mosaic=1.0,
         mixup=0.15,
         hsv_v=0.4,
+        close_mosaic=close_mosaic,
+        seed=seed,
         project="runs/detect",
         name=run_name,
         exist_ok=True,
@@ -126,12 +130,14 @@ def train_and_export_yolo(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=str, default="data/dataset_yolo/data.yaml")
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=120)
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--freeze", type=int, default=10)
-    parser.add_argument("--patience", type=int, default=15)
-    parser.add_argument("--weights", type=str, default="yolov8n.pt")
+    parser.add_argument("--freeze", type=int, default=0)
+    parser.add_argument("--patience", type=int, default=30)
+    parser.add_argument("--close-mosaic", type=int, default=15)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--weights", type=str, default="yolov8s.pt")
     parser.add_argument("--name", type=str, default="stock2stove_yolov8n")
     parser.add_argument("--export-onnx", action="store_true")
     args = parser.parse_args()
@@ -146,6 +152,8 @@ def main():
         base_weights=args.weights,
         run_name=args.name,
         export_onnx=args.export_onnx,
+        close_mosaic=args.close_mosaic,
+        seed=args.seed,
     )
     print(f"Saved PyTorch weights: {summary['best_pt']}")
     if summary["best_onnx"]:

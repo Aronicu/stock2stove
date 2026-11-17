@@ -312,6 +312,135 @@ def evaluate_predictions_against_gt(pred_boxes, gt_boxes, iou_threshold=0.50):
     return int(tp), int(fp), int(fn), average_precisions_per_class
 
 
+def compute_per_class_pr(pred_boxes, gt_boxes, iou_threshold=0.50):
+    gt_buckets = {}
+    gt_counts_by_class = {}
+
+    for gt in gt_boxes:
+        cls_id = normalize_class_id(gt.get("class_id", ""))
+        img_id = gt.get("image_id", gt.get("filename", "__single__"))
+        bbox = extract_bbox_xyxy(gt)
+        key = (img_id, cls_id)
+        if key not in gt_buckets:
+            gt_buckets[key] = []
+        gt_buckets[key].append({
+            "bbox_norm": bbox,
+            "matched": False,
+        })
+        gt_counts_by_class[cls_id] = gt_counts_by_class.get(cls_id, 0) + 1
+
+    indexed_preds = []
+    for idx, pred in enumerate(pred_boxes):
+        conf = float(pred.get("confidence", 0.0))
+        indexed_preds.append((conf, -idx, pred))
+    indexed_preds.sort(key=lambda item: (item[0], item[1]), reverse=True)
+
+    tp_by_class = {}
+    fp_by_class = {}
+
+    for _, _, pred in indexed_preds:
+        cls_id = normalize_class_id(pred.get("class_id", ""))
+        img_id = pred.get("image_id", pred.get("filename", "__single__"))
+        pbox = extract_bbox_xyxy(pred)
+        key = (img_id, cls_id)
+
+        best_iou = 0.0
+        best_gt_idx = -1
+        candidates = gt_buckets.get(key, [])
+        for g_idx, g_entry in enumerate(candidates):
+            if g_entry["matched"]:
+                continue
+            iou_val = compute_box_iou(pbox, g_entry["bbox_norm"])
+            if iou_val > best_iou:
+                best_iou = iou_val
+                best_gt_idx = g_idx
+
+        if best_gt_idx >= 0 and best_iou >= float(iou_threshold):
+            candidates[best_gt_idx]["matched"] = True
+            tp_by_class[cls_id] = tp_by_class.get(cls_id, 0) + 1
+        else:
+            fp_by_class[cls_id] = fp_by_class.get(cls_id, 0) + 1
+
+    all_classes = sorted(set(list(gt_counts_by_class.keys()) + list(tp_by_class.keys()) + list(fp_by_class.keys())))
+    precision_per_class = {}
+    recall_per_class = {}
+    for cls_id in all_classes:
+        cls_tp = tp_by_class.get(cls_id, 0)
+        cls_fp = fp_by_class.get(cls_id, 0)
+        cls_gt = gt_counts_by_class.get(cls_id, 0)
+        precision_per_class[cls_id] = round(float(cls_tp) / float(cls_tp + cls_fp), 4) if (cls_tp + cls_fp) > 0 else 0.0
+        recall_per_class[cls_id] = round(float(cls_tp) / float(cls_gt), 4) if cls_gt > 0 else 0.0
+
+    return precision_per_class, recall_per_class
+
+
+def evaluate_false_meat_rate(data_yaml_path, conf_threshold=0.50):
+    samples = load_yolo_test_split(data_yaml_path)
+    checked_names = set()
+    eval_items = []
+
+    for sample in samples:
+        has_meat_gt = False
+        for gt in sample["gt_boxes"]:
+            if gt["class_id"] == "canned_tuna_meat":
+                has_meat_gt = True
+                break
+        if not has_meat_gt:
+            fname = os.path.basename(sample["filename"])
+            if fname not in checked_names:
+                checked_names.add(fname)
+                eval_items.append((sample["filename"], sample["image"]))
+
+    samples_dir = Path(PROJECT_ROOT) / "data" / "samples"
+    if samples_dir.exists():
+        for img_path in sorted(samples_dir.glob("pantry_images_cv_*.jpg")):
+            fname = os.path.basename(str(img_path))
+            if fname in checked_names:
+                continue
+            bgr = cv2.imread(str(img_path))
+            if bgr is not None and bgr.size > 0:
+                checked_names.add(fname)
+                eval_items.append((img_path.name, bgr))
+
+    pantry_neg_dir = Path(data_yaml_path).resolve().parent / "pantry_negatives"
+    if pantry_neg_dir.exists():
+        for img_path in sorted(pantry_neg_dir.iterdir()):
+            if not img_path.is_file() or img_path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".bmp", ".webp"):
+                continue
+            fname = os.path.basename(str(img_path))
+            if fname in checked_names:
+                continue
+            bgr = cv2.imread(str(img_path))
+            if bgr is not None and bgr.size > 0:
+                checked_names.add(fname)
+                eval_items.append((img_path.name, bgr))
+
+    false_meat_images = []
+    for name, bgr in eval_items:
+        prep = preprocess_frame(bgr, enable_clahe=True, target_size=640)
+        dets, _ = run_yolo_detection(
+            prep["letterboxed_bgr"],
+            mode="yolov8",
+            conf_threshold=float(conf_threshold),
+        )
+        found_meat = False
+        for det in dets:
+            if det.get("class_id") == "canned_tuna_meat":
+                found_meat = True
+                break
+        if found_meat:
+            false_meat_images.append(name)
+
+    total = len(eval_items)
+    rate = round(float(len(false_meat_images)) / float(total), 4) if total > 0 else 0.0
+    return {
+        "false_meat_rate": rate,
+        "false_meat_count": len(false_meat_images),
+        "total_pantry_negatives": total,
+        "false_meat_images": false_meat_images,
+    }
+
+
 def render_benchmark_chart(rows, output_plot):
     os.makedirs(os.path.dirname(os.path.abspath(output_plot)), exist_ok=True)
 
@@ -477,6 +606,11 @@ def run_benchmark_suite(
                 all_gts,
                 iou_threshold=float(iou_threshold),
             )
+            precision_per_class, recall_per_class = compute_per_class_pr(
+                all_preds,
+                all_gts,
+                iou_threshold=float(iou_threshold),
+            )
 
             if ap_per_class:
                 map50 = sum(ap_per_class.values()) / float(len(ap_per_class))
@@ -510,7 +644,14 @@ def run_benchmark_suite(
 
             json_entry = dict(row_dict)
             json_entry["ap_per_class"] = ap_per_class
+            json_entry["precision_per_class"] = precision_per_class
+            json_entry["recall_per_class"] = recall_per_class
+            json_entry["canned_tuna_meat_precision"] = precision_per_class.get("canned_tuna_meat", 0.0)
             by_split[split_name][detector_name] = json_entry
+
+    false_meat_eval = evaluate_false_meat_rate(data_yaml_path, conf_threshold=float(conf_threshold))
+    normal_yolo_entry = by_split.get("normal", {}).get("yolov8n_finetuned", {})
+    tuna_precision = float(normal_yolo_entry.get("canned_tuna_meat_precision", 0.0))
 
     csv_parent = os.path.dirname(os.path.abspath(output_csv))
     if csv_parent:
@@ -541,6 +682,9 @@ def run_benchmark_suite(
         "conf_threshold": float(conf_threshold),
         "iou_threshold": float(iou_threshold),
         "weights_path": str(loaded_weights_path) if loaded_weights_path else "opencv_hybrid_fallback",
+        "false_meat_rate": false_meat_eval["false_meat_rate"],
+        "canned_tuna_meat_precision": tuna_precision,
+        "false_meat_evaluation": false_meat_eval,
         "splits": splits_order,
         "detectors": detectors_order,
         "results": rows,

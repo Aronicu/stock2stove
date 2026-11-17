@@ -5,6 +5,7 @@ from src.server.config import (
     NMS_IOU_THRESHOLD,
     TEMPORAL_MIN_HITS,
     TEMPORAL_WINDOW_SIZE,
+    get_class_conf_threshold,
     get_display_name,
     normalize_class_id,
 )
@@ -87,10 +88,11 @@ def update_temporal_tracker(tracker_state, detections, conf_threshold=None):
     filtered_input = []
     for det in detections:
         conf_val = float(det.get("confidence", 0.0))
-        if conf_val < active_conf:
-            continue
         raw_cls = det.get("class_id", "pasta_noodles")
         cls_id = normalize_class_id(raw_cls)
+        req_conf = get_class_conf_threshold(cls_id, active_conf)
+        if conf_val < req_conf:
+            continue
         disp = det.get("display_name") or get_display_name(cls_id)
         bbox = det.get("bbox_norm", [0.0, 0.0, 1.0, 1.0])
         poly = det.get("polygon_norm", None)

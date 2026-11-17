@@ -1,5 +1,4 @@
 import argparse
-import glob
 import math
 import os
 import shutil
@@ -15,6 +14,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.server.config import SAMPLES_DIR, TEMPLATES_DIR, UNIFIED_CLASSES
+from src.training.download_roboflow import is_valid_yolo_box
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -26,7 +26,7 @@ def get_unified_class_names():
     return names
 
 
-def parse_yolo_label_file(label_path, num_classes=8):
+def parse_yolo_label_file(label_path, num_classes=8, max_area=0.80):
     boxes = []
     label_lines = []
     if not os.path.exists(label_path):
@@ -53,12 +53,23 @@ def parse_yolo_label_file(label_path, num_classes=8):
                 except ValueError:
                     continue
             else:
-                try:
-                    coords = [float(v) for v in parts[1:]]
-                except ValueError:
+                coords = []
+                parse_err = False
+                for v in parts[1:]:
+                    try:
+                        coords.append(float(v))
+                    except ValueError:
+                        parse_err = True
+                        break
+                if parse_err:
                     continue
-                xs = [coords[k] for k in range(0, len(coords) - 1, 2)]
-                ys = [coords[k + 1] for k in range(0, len(coords) - 1, 2)]
+                xs = []
+                ys = []
+                k = 0
+                while k + 1 < len(coords):
+                    xs.append(coords[k])
+                    ys.append(coords[k + 1])
+                    k += 2
                 if not xs or not ys:
                     continue
                 x1 = max(0.0, min(1.0, min(xs)))
@@ -74,7 +85,7 @@ def parse_yolo_label_file(label_path, num_classes=8):
             yc = max(0.0, min(1.0, yc))
             bw = max(0.0, min(1.0, bw))
             bh = max(0.0, min(1.0, bh))
-            if bw <= 0.001 or bh <= 0.001:
+            if not is_valid_yolo_box(xc, yc, bw, bh, max_area=max_area):
                 continue
 
             boxes.append((cls_idx, xc, yc, bw, bh))
@@ -83,7 +94,7 @@ def parse_yolo_label_file(label_path, num_classes=8):
     return boxes, label_lines
 
 
-def scan_roboflow_directory(source_dir):
+def scan_roboflow_directory(source_dir, include_empty=True):
     root = Path(source_dir)
     if not root.exists():
         return []
@@ -114,10 +125,18 @@ def scan_roboflow_directory(source_dir):
             if not img_path.is_file() or img_path.suffix.lower() not in IMAGE_EXTENSIONS:
                 continue
             lbl_path = labels_dir / f"{img_path.stem}.txt"
-            boxes, label_lines = parse_yolo_label_file(str(lbl_path))
-            if not boxes:
+            if not lbl_path.exists():
                 continue
-            cls_set = sorted(list({b[0] for b in boxes}))
+            boxes, label_lines = parse_yolo_label_file(str(lbl_path))
+            is_negative = False
+            if not boxes:
+                if not include_empty:
+                    continue
+                is_negative = True
+            cls_set_raw = set()
+            for b in boxes:
+                cls_set_raw.add(b[0])
+            cls_set = sorted(list(cls_set_raw))
             records.append({
                 "image_path": str(img_path),
                 "label_path": str(lbl_path),
@@ -126,66 +145,50 @@ def scan_roboflow_directory(source_dir):
                 "classes": cls_set,
                 "boxes": boxes,
                 "label_lines": label_lines,
+                "is_negative": is_negative,
             })
 
     return records
 
 
-def collect_existing_roboflow_samples(source_dirs, max_per_class=45):
+def collect_existing_roboflow_samples(source_dirs, max_per_class=80, include_empty=True):
     if isinstance(source_dirs, (str, os.PathLike)):
         dir_list = [str(source_dirs)]
     else:
-        dir_list = [str(d) for d in source_dirs]
+        dir_list = []
+        for d in source_dirs:
+            dir_list.append(str(d))
 
     all_candidates = []
     for src_dir in dir_list:
-        all_candidates.extend(scan_roboflow_directory(src_dir))
+        all_candidates.extend(scan_roboflow_directory(src_dir, include_empty=include_empty))
 
     if not all_candidates:
         return []
 
-    class_freq = {i: 0 for i in range(8)}
+    class_freq = {}
+    for i in range(8):
+        class_freq[i] = 0
     for cand in all_candidates:
         for cls_idx in cand["classes"]:
             class_freq[cls_idx] += 1
 
     selected = []
     selected_paths = set()
-    selected_class_counts = {i: 0 for i in range(8)}
+    selected_class_counts = {}
+    for i in range(8):
+        selected_class_counts[i] = 0
 
-    sources_seen = []
     for cand in all_candidates:
-        if cand["source"] not in sources_seen:
-            sources_seen.append(cand["source"])
+        if cand["is_negative"]:
+            selected.append(cand)
+            selected_paths.add(cand["image_path"])
 
-    pantry_quota = min(15, max(3, int(max_per_class) // 3))
-    for src_name in sources_seen:
-        src_cands = [c for c in all_candidates if c["source"] == src_name]
-        has_rare = False
-        for c in src_cands:
-            for cls_idx in c["classes"]:
-                if cls_idx != 7:
-                    has_rare = True
-                    break
-            if has_rare:
-                break
-        if not has_rare and src_cands:
-            per_split_targets = {"train": pantry_quota - 4, "valid": 2, "test": 2}
-            for split_name in ("train", "valid", "test"):
-                split_cands = [c for c in src_cands if c["orig_split"] == split_name]
-                limit = per_split_targets.get(split_name, 2)
-                for cand in split_cands[:limit]:
-                    if cand["image_path"] in selected_paths:
-                        continue
-                    selected.append(cand)
-                    selected_paths.add(cand["image_path"])
-                    for cls_idx in cand["classes"]:
-                        selected_class_counts[cls_idx] += 1
-
-    ordered_classes = sorted(
-        [c for c in range(8) if class_freq[c] > 0],
-        key=lambda c: (class_freq[c], c),
-    )
+    non_empty_classes = []
+    for c in range(8):
+        if class_freq[c] > 0:
+            non_empty_classes.append(c)
+    ordered_classes = sorted(non_empty_classes, key=lambda c: (class_freq[c], c))
 
     for cls_idx in ordered_classes:
         while selected_class_counts[cls_idx] < int(max_per_class):
@@ -219,7 +222,9 @@ def collect_existing_roboflow_samples(source_dirs, max_per_class=45):
 
 def load_template_paths_by_class(templates_dir):
     class_names = get_unified_class_names()
-    templates_by_cls = {i: [] for i in range(8)}
+    templates_by_cls = {}
+    for i in range(8):
+        templates_by_cls[i] = []
 
     for cls_idx, cls_name in class_names.items():
         cls_dir = Path(templates_dir) / cls_name
@@ -236,11 +241,20 @@ def load_background_paths(samples_dir):
     samples_root = Path(samples_dir)
     if not samples_root.exists():
         return []
-    paths = []
+    negative_real = []
+    fallback = []
     for p in sorted(samples_root.iterdir()):
         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
-            paths.append(str(p))
-    return paths
+            name = p.name.lower()
+            if name.startswith("pantry_images_cv_"):
+                idx_part = name.replace("pantry_images_cv_", "").split(".")[0]
+                if idx_part.isdigit() and int(idx_part) >= 8:
+                    negative_real.append(str(p))
+            elif not name.startswith("shelf_sample_"):
+                fallback.append(str(p))
+    if negative_real:
+        return negative_real
+    return fallback
 
 
 def boxes_overlap_with_margin(box_a, box_b, margin_px=6):
@@ -340,7 +354,6 @@ def composite_single_scene(bg_path, item_specs, templates_cache, frame_size, rng
             canvas = cv2.flip(canvas, 1)
         bg_bright = float(rng.uniform(0.85, 1.12))
         canvas = np.clip(canvas.astype(np.float32) * bg_bright, 0.0, 255.0).astype(np.uint8)
-        canvas = cv2.GaussianBlur(canvas, (31, 31), 10)
 
     placed_boxes = []
     yolo_labels = []
@@ -350,15 +363,15 @@ def composite_single_scene(bg_path, item_specs, templates_cache, frame_size, rng
         if tmpl_bgr is None:
             continue
 
-        base_scale = float(rng.uniform(0.22, 0.42))
+        base_scale = float(rng.uniform(0.22, 0.40))
         angle_deg = float(rng.uniform(-8.0, 8.0))
         bright_val = float(rng.uniform(0.80, 1.15))
 
         placed = None
         for shrink_factor in (1.0, 0.85, 0.72, 0.60):
-            try_scale = max(0.22, base_scale * shrink_factor) if shrink_factor < 1.0 else base_scale
+            try_scale = max(0.20, base_scale * shrink_factor) if shrink_factor < 1.0 else base_scale
             if shrink_factor <= 0.72:
-                try_scale = max(0.22, min(try_scale, 0.28))
+                try_scale = max(0.20, min(try_scale, 0.28))
             rot_img, rot_mask = prepare_rotated_template(
                 tmpl_bgr,
                 try_scale,
@@ -386,10 +399,11 @@ def composite_single_scene(bg_path, item_specs, templates_cache, frame_size, rng
 
         px, py, cand_box, rot_img, rot_mask = placed
         rot_h, rot_w = rot_mask.shape[:2]
-        roi = canvas[py : py + rot_h, px : px + rot_w]
-        mask_bool = rot_mask > 0
-        roi[mask_bool] = rot_img[mask_bool]
-        canvas[py : py + rot_h, px : px + rot_w] = roi
+        roi = canvas[py : py + rot_h, px : px + rot_w].astype(np.float32)
+        feathered = cv2.GaussianBlur(rot_mask, (7, 7), 2.0).astype(np.float32) / 255.0
+        alpha = feathered[:, :, None]
+        blended = (rot_img.astype(np.float32) * alpha) + (roi * (1.0 - alpha))
+        canvas[py : py + rot_h, px : px + rot_w] = np.clip(blended, 0.0, 255.0).astype(np.uint8)
         placed_boxes.append(cand_box)
 
         bx1, by1, bx2, by2 = cand_box
@@ -431,15 +445,18 @@ def generate_balanced_shelf_composites(
     templates_dir,
     samples_dir,
     output_dir,
-    num_train=140,
-    num_val=36,
-    num_test=36,
+    num_train=60,
+    num_val=0,
+    num_test=0,
 ):
     frame_size = 640
     rng = np.random.default_rng(42)
 
     templates_by_cls = load_template_paths_by_class(templates_dir)
-    available_classes = [c for c in range(8) if len(templates_by_cls[c]) > 0]
+    available_classes = []
+    for c in range(8):
+        if len(templates_by_cls[c]) > 0:
+            available_classes.append(c)
     if not available_classes:
         raise FileNotFoundError(f"No reference templates found under {templates_dir}")
 
@@ -452,12 +469,10 @@ def generate_balanced_shelf_composites(
 
     bg_paths = load_background_paths(samples_dir)
     if not bg_paths:
-        raise FileNotFoundError(f"No background sample images found under {samples_dir}")
-
-    n_bg = len(bg_paths)
-    if n_bg >= 12:
-        train_end = max(1, int(round(0.70 * n_bg)))
-        val_end = max(train_end + 1, int(round(0.85 * n_bg)))
+        bg_splits = {"train": [], "valid": [], "test": []}
+    elif len(bg_paths) >= 10:
+        train_end = max(1, int(round(0.70 * len(bg_paths))))
+        val_end = max(train_end + 1, int(round(0.85 * len(bg_paths))))
         bg_splits = {
             "train": bg_paths[:train_end],
             "valid": bg_paths[train_end:val_end],
@@ -478,7 +493,9 @@ def generate_balanced_shelf_composites(
         ("test", int(num_test)),
     ]
 
-    class_instance_counts = {i: 0 for i in range(8)}
+    class_instance_counts = {}
+    for i in range(8):
+        class_instance_counts[i] = 0
     split_image_counts = {"train": 0, "valid": 0, "test": 0}
     total_instances = 0
 
@@ -515,7 +532,7 @@ def generate_balanced_shelf_composites(
                 chosen_tmpl = tmpl_choices[int(rng.integers(0, len(tmpl_choices)))]
                 item_specs.append((cls_idx, chosen_tmpl))
 
-            chosen_bg = split_bgs[scene_idx % len(split_bgs)]
+            chosen_bg = split_bgs[scene_idx % len(split_bgs)] if split_bgs else ""
             canvas, yolo_labels = composite_single_scene(
                 chosen_bg,
                 item_specs,
@@ -547,72 +564,6 @@ def generate_balanced_shelf_composites(
     }
 
 
-def allocate_roboflow_to_splits(samples, target_counts):
-    pantry_by_split = {"train": [], "valid": [], "test": []}
-    fridge_pool = []
-
-    for sample in samples:
-        has_non_produce = any(c != 7 for c in sample["classes"])
-        if has_non_produce:
-            fridge_pool.append(sample)
-        else:
-            orig_s = sample.get("orig_split", "train")
-            if orig_s not in pantry_by_split:
-                orig_s = "train"
-            pantry_by_split[orig_s].append(sample)
-
-    allocated = {"train": [], "valid": [], "test": []}
-    pantry_caps = {"train": 12, "valid": 3, "test": 2}
-    for split_name in ("train", "valid", "test"):
-        cap = min(pantry_caps[split_name], target_counts[split_name])
-        allocated[split_name].extend(pantry_by_split[split_name][:cap])
-
-    fridge_sorted = sorted(
-        fridge_pool,
-        key=lambda s: (min(s["classes"]), len(s["classes"]), s["image_path"]),
-    )
-    need_val = max(0, target_counts["valid"] - len(allocated["valid"]))
-    need_test = max(0, target_counts["test"] - len(allocated["test"]))
-    need_train = max(0, target_counts["train"] - len(allocated["train"]))
-
-    rng = np.random.default_rng(123)
-    indices = list(range(len(fridge_sorted)))
-    rng.shuffle(indices)
-
-    val_picked = []
-    test_picked = []
-    train_picked = []
-    for pos, idx in enumerate(indices):
-        item = fridge_sorted[idx]
-        if len(val_picked) < need_val and pos % 7 == 1:
-            val_picked.append(item)
-        elif len(test_picked) < need_test and pos % 11 == 3:
-            test_picked.append(item)
-        elif len(train_picked) < need_train:
-            train_picked.append(item)
-
-    remaining = [
-        fridge_sorted[idx]
-        for idx in indices
-        if fridge_sorted[idx] not in val_picked
-        and fridge_sorted[idx] not in test_picked
-        and fridge_sorted[idx] not in train_picked
-    ]
-
-    for item in remaining:
-        if len(val_picked) < need_val:
-            val_picked.append(item)
-        elif len(test_picked) < need_test:
-            test_picked.append(item)
-        elif len(train_picked) < need_train:
-            train_picked.append(item)
-
-    allocated["valid"].extend(val_picked)
-    allocated["test"].extend(test_picked)
-    allocated["train"].extend(train_picked)
-    return allocated
-
-
 def write_dataset_yaml_files(output_dir):
     out_root = Path(output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -642,8 +593,11 @@ def write_dataset_yaml_files(output_dir):
 def count_dataset_statistics(dataset_dir):
     root = Path(dataset_dir)
     split_image_counts = {}
-    class_counts = {i: 0 for i in range(8)}
+    class_counts = {}
+    for i in range(8):
+        class_counts[i] = 0
     per_split_class_counts = {}
+    negative_image_counts = {}
 
     for split_name in ("train", "valid", "test"):
         images_dir = root / split_name / "images"
@@ -655,46 +609,249 @@ def count_dataset_statistics(dataset_dir):
                     img_count += 1
         split_image_counts[split_name] = img_count
 
-        split_cls = {i: 0 for i in range(8)}
+        split_cls = {}
+        for i in range(8):
+            split_cls[i] = 0
+        neg_count = 0
         if labels_dir.exists():
             for lp in labels_dir.glob("*.txt"):
                 boxes, _ = parse_yolo_label_file(str(lp))
+                if not boxes:
+                    neg_count += 1
                 for b in boxes:
                     cls_idx = b[0]
                     class_counts[cls_idx] += 1
                     split_cls[cls_idx] += 1
         per_split_class_counts[split_name] = split_cls
+        negative_image_counts[split_name] = neg_count
 
     return {
         "split_image_counts": split_image_counts,
         "class_instance_counts": class_counts,
         "per_split_class_counts": per_split_class_counts,
+        "negative_image_counts": negative_image_counts,
         "total_images": sum(split_image_counts.values()),
         "total_instances": sum(class_counts.values()),
     }
 
 
-def collect_auto_labeled_samples(auto_labeled_dir):
-    root = Path(auto_labeled_dir)
-    images_dir = root / "images"
-    labels_dir = root / "labels"
-    if not images_dir.exists() or not labels_dir.exists():
-        return []
+def extract_templates_from_datasets(source_dirs, templates_dir=TEMPLATES_DIR, samples_dir=SAMPLES_DIR, min_per_class=10):
+    tmpl_root = Path(templates_dir)
+    if tmpl_root.exists():
+        shutil.rmtree(tmpl_root)
 
-    samples = []
-    for img_path in sorted(images_dir.iterdir()):
-        if not img_path.is_file() or img_path.suffix.lower() not in IMAGE_EXTENSIONS:
+    class_names = get_unified_class_names()
+    for cls_idx in range(8):
+        (tmpl_root / class_names[cls_idx]).mkdir(parents=True, exist_ok=True)
+
+    saved_per_cls = {}
+    for cls_idx in range(8):
+        saved_per_cls[cls_idx] = 0
+
+    priority_sample = Path(samples_dir) / "pantry_images_cv_01.jpg"
+    if priority_sample.exists():
+        img01 = cv2.imread(str(priority_sample))
+        if img01 is not None and img01.size > 0:
+            h01, w01 = img01.shape[:2]
+            seed_crops = [
+                (0, 0.09, 0.20, 0.38, 0.47),
+                (1, 0.36, 0.19, 0.65, 0.47),
+                (3, 0.60, 0.18, 0.90, 0.46),
+            ]
+            for cls_idx, x1f, y1f, x2f, y2f in seed_crops:
+                px1 = max(0, int(round(x1f * w01)))
+                py1 = max(0, int(round(y1f * h01)))
+                px2 = min(w01, int(round(x2f * w01)))
+                py2 = min(h01, int(round(y2f * h01)))
+                if px2 - px1 >= 16 and py2 - py1 >= 16:
+                    crop = img01[py1:py2, px1:px2]
+                    ch, cw = crop.shape[:2]
+                    if cw < 220 or ch < 220:
+                        scale_up = max(220.0 / float(cw), 220.0 / float(ch))
+                        crop = cv2.resize(
+                            crop,
+                            (int(round(cw * scale_up)), int(round(ch * scale_up))),
+                            interpolation=cv2.INTER_CUBIC,
+                        )
+                    idx_num = saved_per_cls[cls_idx]
+                    out_p = tmpl_root / class_names[cls_idx] / f"template_{idx_num:03d}.jpg"
+                    cv2.imwrite(str(out_p), crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    saved_per_cls[cls_idx] += 1
+
+    all_records = []
+    for src_dir in source_dirs:
+        all_records.extend(scan_roboflow_directory(src_dir, include_empty=False))
+
+    for rec in all_records:
+        if rec["orig_split"] != "train":
             continue
-        lbl_path = labels_dir / f"{img_path.stem}.txt"
-        boxes, label_lines = parse_yolo_label_file(str(lbl_path))
-        if not boxes:
+        all_done = True
+        for cls_idx in range(8):
+            if saved_per_cls[cls_idx] < int(min_per_class):
+                all_done = False
+                break
+        if all_done:
+            break
+
+        img = cv2.imread(rec["image_path"])
+        if img is None or img.size == 0:
             continue
-        samples.append({
-            "image_path": str(img_path),
-            "label_path": str(lbl_path),
-            "label_lines": label_lines,
-        })
-    return samples
+        ih, iw = img.shape[:2]
+
+        for cls_idx, xc, yc, bw, bh in rec["boxes"]:
+            if saved_per_cls[cls_idx] >= int(min_per_class):
+                continue
+            x1 = max(0, int(round((xc - bw / 2.0) * float(iw))))
+            y1 = max(0, int(round((yc - bh / 2.0) * float(ih))))
+            x2 = min(iw, int(round((xc + bw / 2.0) * float(iw))))
+            y2 = min(ih, int(round((yc + bh / 2.0) * float(ih))))
+            if x2 - x1 < 24 or y2 - y1 < 24:
+                continue
+            crop = img[y1:y2, x1:x2]
+            ch, cw = crop.shape[:2]
+            if cw < 160 or ch < 160:
+                scale_up = max(160.0 / float(cw), 160.0 / float(ch))
+                crop = cv2.resize(
+                    crop,
+                    (int(round(cw * scale_up)), int(round(ch * scale_up))),
+                    interpolation=cv2.INTER_CUBIC,
+                )
+            idx_num = saved_per_cls[cls_idx]
+            out_p = tmpl_root / class_names[cls_idx] / f"template_{idx_num:03d}.jpg"
+            cv2.imwrite(str(out_p), crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            saved_per_cls[cls_idx] += 1
+
+    return saved_per_cls
+
+
+def generate_negative_samples(samples_dir, output_dir, train_count, val_count, test_count):
+    bg_paths = load_background_paths(samples_dir)
+    if not bg_paths:
+        return {"train": 0, "valid": 0, "test": 0}
+
+    n_bg = len(bg_paths)
+    train_end = max(1, min(n_bg - 2, int(round(0.70 * n_bg)))) if n_bg >= 3 else n_bg
+    val_end = max(train_end + 1, min(n_bg - 1, int(round(0.85 * n_bg)))) if n_bg >= 3 else n_bg
+
+    split_bgs = {
+        "train": bg_paths[:train_end],
+        "valid": bg_paths[train_end:val_end] if val_end > train_end else bg_paths[-1:],
+        "test": bg_paths[val_end:] if val_end < n_bg else bg_paths[-1:],
+    }
+    split_targets = {
+        "train": int(train_count),
+        "valid": int(val_count),
+        "test": int(test_count),
+    }
+
+    rng = np.random.default_rng(77)
+    out_root = Path(output_dir)
+    saved = {"train": 0, "valid": 0, "test": 0}
+
+    for split_name in ("train", "valid", "test"):
+        target = split_targets[split_name]
+        bgs = split_bgs[split_name]
+        images_dst = out_root / split_name / "images"
+        labels_dst = out_root / split_name / "labels"
+        images_dst.mkdir(parents=True, exist_ok=True)
+        labels_dst.mkdir(parents=True, exist_ok=True)
+
+        for idx in range(target):
+            src_bg = bgs[idx % len(bgs)]
+            bgr = cv2.imread(src_bg)
+            if bgr is None or bgr.size == 0:
+                continue
+            resized = cv2.resize(bgr, (640, 640), interpolation=cv2.INTER_CUBIC)
+            variant = idx // len(bgs)
+            if variant % 3 == 1:
+                resized = cv2.flip(resized, 1)
+            elif variant % 3 == 2:
+                crop = resized[40:600, 40:600]
+                resized = cv2.resize(crop, (640, 640), interpolation=cv2.INTER_LINEAR)
+            bright = float(rng.uniform(0.82, 1.15))
+            resized = np.clip(resized.astype(np.float32) * bright, 0.0, 255.0).astype(np.uint8)
+
+            stem = f"neg_{split_name}_{idx:04d}"
+            cv2.imwrite(str(images_dst / f"{stem}.jpg"), resized, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            with open(labels_dst / f"{stem}.txt", "w", encoding="utf-8") as f:
+                f.write("")
+            saved[split_name] += 1
+
+    return saved
+
+
+def populate_pantry_negatives_eval_dir(samples_dir, output_dir):
+    neg_eval_dir = Path(output_dir) / "pantry_negatives"
+    if neg_eval_dir.exists():
+        shutil.rmtree(neg_eval_dir)
+    neg_eval_dir.mkdir(parents=True, exist_ok=True)
+
+    samples_root = Path(samples_dir)
+    if samples_root.exists():
+        for p in sorted(samples_root.glob("pantry_images_cv_*.jpg")):
+            shutil.copy2(p, neg_eval_dir / p.name)
+
+    test_images_dir = Path(output_dir) / "test" / "images"
+    test_labels_dir = Path(output_dir) / "test" / "labels"
+    if test_images_dir.exists() and test_labels_dir.exists():
+        for img_path in sorted(test_images_dir.iterdir()):
+            if not img_path.is_file() or img_path.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            lbl_path = test_labels_dir / f"{img_path.stem}.txt"
+            boxes, _ = parse_yolo_label_file(str(lbl_path))
+            has_meat = False
+            for b in boxes:
+                if b[0] == 2:
+                    has_meat = True
+                    break
+            if not has_meat:
+                shutil.copy2(img_path, neg_eval_dir / img_path.name)
+
+
+def copy_records_to_split(records, images_dst, labels_dst):
+    images_dst.mkdir(parents=True, exist_ok=True)
+    labels_dst.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for idx, rec in enumerate(records):
+        src_img = Path(rec["image_path"])
+        stem = f"rf_{rec['source']}_{idx:04d}_{src_img.stem}"
+        dst_img = images_dst / f"{stem}{src_img.suffix.lower()}"
+        dst_lbl = labels_dst / f"{stem}.txt"
+        shutil.copy2(src_img, dst_img)
+        with open(dst_lbl, "w", encoding="utf-8") as f:
+            f.writelines(rec["label_lines"])
+        copied += 1
+    return copied
+
+
+def balance_source_caps(records, max_fraction=0.40):
+    if not records:
+        return []
+    by_source = {}
+    for rec in records:
+        src = rec["source"]
+        if src not in by_source:
+            by_source[src] = []
+        by_source[src].append(rec)
+
+    if len(by_source) <= 1:
+        return list(records)
+
+    total_est = len(records)
+    cap = max(10, int(math.floor(float(max_fraction) * float(total_est))))
+    kept = []
+    for src in sorted(by_source.keys()):
+        src_recs = by_source[src]
+        if len(src_recs) <= cap:
+            kept.extend(src_recs)
+        else:
+            step = float(len(src_recs)) / float(cap)
+            picked = []
+            for k in range(cap):
+                idx = min(len(src_recs) - 1, int(math.floor(float(k) * step)))
+                picked.append(src_recs[idx])
+            kept.extend(picked)
+    return kept
 
 
 def build_unified_dataset(output_dir="data/dataset_yolo"):
@@ -709,53 +866,76 @@ def build_unified_dataset(output_dir="data/dataset_yolo"):
         (out_root / split_name / "images").mkdir(parents=True, exist_ok=True)
         (out_root / split_name / "labels").mkdir(parents=True, exist_ok=True)
 
-    auto_dir = os.path.join(PROJECT_ROOT, "data", "auto_labeled")
-    auto_samples = collect_auto_labeled_samples(auto_dir)
-    num_auto = len(auto_samples)
-    comp_train = 140 if num_auto == 0 else max(90, 155 - num_auto)
-    rf_train_target = 60 if num_auto == 0 else max(30, 200 - comp_train - num_auto)
+    source_dirs = [
+        os.path.join(PROJECT_ROOT, "data", "raw_rf_frieburg"),
+        os.path.join(PROJECT_ROOT, "data", "raw_rf_kitchen_yolo"),
+        os.path.join(PROJECT_ROOT, "data", "raw_roboflow_fridge"),
+        os.path.join(PROJECT_ROOT, "data", "raw_rf_pantry_samples"),
+    ]
+    for extra_name in ("raw_rf_yolo_pantry", "raw_rf_smart_pantry"):
+        extra_path = os.path.join(PROJECT_ROOT, "data", extra_name)
+        if os.path.isdir(extra_path):
+            source_dirs.append(extra_path)
+
+    all_real_records = []
+    for src_dir in source_dirs:
+        if os.path.isdir(src_dir):
+            all_real_records.extend(scan_roboflow_directory(src_dir, include_empty=True))
+
+    pantry_produce_dir = os.path.join(PROJECT_ROOT, "data", "raw_roboflow_pantry")
+    if os.path.isdir(pantry_produce_dir):
+        produce_recs = scan_roboflow_directory(pantry_produce_dir, include_empty=False)
+        split_limits = {"train": 14, "valid": 3, "test": 3}
+        split_seen = {"train": 0, "valid": 0, "test": 0}
+        for rec in produce_recs:
+            sp = rec["orig_split"]
+            if sp not in split_limits:
+                sp = "train"
+            if split_seen[sp] < split_limits[sp]:
+                all_real_records.append(rec)
+                split_seen[sp] += 1
+
+    split_records = {"train": [], "valid": [], "test": []}
+    for rec in all_real_records:
+        sp = rec["orig_split"]
+        if sp not in split_records:
+            sp = "train"
+        split_records[sp].append(rec)
+
+    split_records["train"] = balance_source_caps(split_records["train"], max_fraction=0.40)
+
+    extract_templates_from_datasets(
+        source_dirs=source_dirs,
+        templates_dir=TEMPLATES_DIR,
+        samples_dir=SAMPLES_DIR,
+        min_per_class=10,
+    )
+
+    real_train_count = len(split_records["train"])
+    comp_train_count = min(65, max(20, int(math.floor(0.25 * float(real_train_count)))))
 
     generate_balanced_shelf_composites(
         templates_dir=TEMPLATES_DIR,
         samples_dir=SAMPLES_DIR,
         output_dir=str(out_root),
-        num_train=comp_train,
-        num_val=36,
-        num_test=36,
-    )
-
-    source_dirs = [
-        os.path.join(PROJECT_ROOT, "data", "raw_roboflow_pantry"),
-        os.path.join(PROJECT_ROOT, "data", "raw_roboflow_fridge"),
-    ]
-    rf_samples = collect_existing_roboflow_samples(source_dirs, max_per_class=45)
-    allocated = allocate_roboflow_to_splits(
-        rf_samples,
-        target_counts={"train": rf_train_target, "valid": 9, "test": 4},
+        num_train=comp_train_count,
+        num_val=0,
+        num_test=0,
     )
 
     for split_name in ("train", "valid", "test"):
-        images_dst = out_root / split_name / "images"
-        labels_dst = out_root / split_name / "labels"
-        for idx, sample in enumerate(allocated[split_name]):
-            src_img = Path(sample["image_path"])
-            stem = f"rf_{sample['source']}_{idx:04d}_{src_img.stem}"
-            dst_img = images_dst / f"{stem}{src_img.suffix.lower()}"
-            dst_lbl = labels_dst / f"{stem}.txt"
-            shutil.copy2(src_img, dst_img)
-            with open(dst_lbl, "w", encoding="utf-8") as f:
-                f.writelines(sample["label_lines"])
+        copy_records_to_split(
+            split_records[split_name],
+            out_root / split_name / "images",
+            out_root / split_name / "labels",
+        )
 
-    train_images_dst = out_root / "train" / "images"
-    train_labels_dst = out_root / "train" / "labels"
-    for idx, sample in enumerate(auto_samples):
-        src_img = Path(sample["image_path"])
-        stem = f"autolabel_{idx:04d}_{src_img.stem}"
-        dst_img = train_images_dst / f"{stem}{src_img.suffix.lower()}"
-        dst_lbl = train_labels_dst / f"{stem}.txt"
-        shutil.copy2(src_img, dst_img)
-        with open(dst_lbl, "w", encoding="utf-8") as f:
-            f.writelines(sample["label_lines"])
+    neg_train = max(12, int(round(0.14 * float(real_train_count + comp_train_count))))
+    neg_val = max(4, int(round(0.14 * float(len(split_records["valid"])))))
+    neg_test = max(4, int(round(0.14 * float(len(split_records["test"])))))
+    generate_negative_samples(SAMPLES_DIR, str(out_root), neg_train, neg_val, neg_test)
+
+    populate_pantry_negatives_eval_dir(SAMPLES_DIR, str(out_root))
 
     data_yaml_path, pantry_fridge_yaml_path = write_dataset_yaml_files(str(out_root))
     stats = count_dataset_statistics(str(out_root))
@@ -772,7 +952,9 @@ def main():
     stats = build_unified_dataset(output_dir=args.output_dir)
     print(f"Unified dataset written to {args.output_dir}")
     print(f"Split image counts: {stats['split_image_counts']} (total={stats['total_images']})")
+    print(f"Negative image counts: {stats['negative_image_counts']}")
     print(f"Class instance counts: {stats['class_instance_counts']} (total={stats['total_instances']})")
+    print(f"Per-split class counts: {stats['per_split_class_counts']}")
     print(f"YAML files: {stats['data_yaml']}, {stats['pantry_fridge_yaml']}")
 
 

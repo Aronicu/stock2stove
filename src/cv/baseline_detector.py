@@ -78,16 +78,12 @@ def ensure_reference_templates(templates_dir=TEMPLATES_DIR, samples_dir=SAMPLES_
         sample_files = sorted(glob.glob(os.path.join(samples_dir, "*.jpg")))
 
     crop_specs = [
-        ("pasta_noodles", 0, 0.10, 0.15, 0.48, 0.85),
-        ("pasta_noodles", 1, 0.45, 0.12, 0.88, 0.82),
-        ("canned_tomato", 2, 0.12, 0.20, 0.52, 0.86),
-        ("canned_tomato", 3, 0.42, 0.18, 0.85, 0.84),
-        ("canned_tuna_meat", 4, 0.15, 0.22, 0.58, 0.85),
-        ("cereal_grains", 5, 0.10, 0.10, 0.55, 0.88),
-        ("coffee_condiment", 6, 0.18, 0.15, 0.62, 0.86),
-        ("milk_dairy", 7, 0.14, 0.14, 0.56, 0.86),
-        ("eggs", 8, 0.16, 0.20, 0.64, 0.84),
-        ("fresh_produce", 9, 0.12, 0.18, 0.60, 0.85),
+        ("pasta_noodles", 0, 0.09, 0.20, 0.38, 0.47),
+        ("pasta_noodles", 1, 0.48, 0.54, 0.56, 0.63),
+        ("canned_tomato", 0, 0.36, 0.19, 0.65, 0.47),
+        ("canned_tomato", 3, 0.38, 0.37, 0.49, 0.46),
+        ("cereal_grains", 0, 0.60, 0.18, 0.90, 0.46),
+        ("coffee_condiment", 6, 0.21, 0.38, 0.38, 0.47),
     ]
 
     for spec in crop_specs:

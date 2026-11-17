@@ -30,6 +30,17 @@ NMS_IOU_THRESHOLD = 0.45
 TEMPORAL_WINDOW_SIZE = 5
 TEMPORAL_MIN_HITS = 3
 
+CLASS_CONF_THRESHOLDS = {
+    "pasta_noodles": 0.50,
+    "canned_tomato": 0.50,
+    "canned_tuna_meat": 0.76,
+    "cereal_grains": 0.50,
+    "coffee_condiment": 0.50,
+    "milk_dairy": 0.50,
+    "eggs": 0.50,
+    "fresh_produce": 0.50,
+}
+
 ORB_NFEATURES = 1000
 SIFT_NFEATURES = 1000
 LOWE_RATIO_THRESHOLD = 0.75
@@ -184,3 +195,11 @@ def get_storage_zone(class_id):
         if entry["class_id"] == canonical:
             return entry["storage_zone"]
     return "Pantry"
+
+
+def get_class_conf_threshold(class_id, base_threshold=DEFAULT_CONF_THRESHOLD):
+    canonical = normalize_class_id(class_id)
+    cls_min = CLASS_CONF_THRESHOLDS.get(canonical, DEFAULT_CONF_THRESHOLD)
+    if canonical == "canned_tuna_meat":
+        return max(float(base_threshold), float(cls_min))
+    return float(base_threshold)

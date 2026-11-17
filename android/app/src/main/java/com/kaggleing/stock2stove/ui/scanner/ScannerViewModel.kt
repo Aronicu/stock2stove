@@ -127,18 +127,44 @@ class ScannerViewModel(
         )
 
         _uiState.update { state ->
-            val mergedInventory = if (response.confirmed_inventory.isNotEmpty()) {
-                response.confirmed_inventory
+            val confirmedServerItems = mutableListOf<ConfirmedItem>()
+            for (item in response.confirmed_inventory) {
+                var detConfirmed = false
+                for (det in response.detections) {
+                    if (det.class_id == item.class_id && det.temporally_confirmed) {
+                        detConfirmed = true
+                        break
+                    }
+                }
+                if (detConfirmed || tracker.isConfirmed(item.class_id)) {
+                    confirmedServerItems.add(item)
+                }
+            }
+            val mergedInventory = if (confirmedServerItems.isNotEmpty()) {
+                confirmedServerItems
             } else if (trackerTally.isNotEmpty()) {
-                trackerTally.map { (cls, count) ->
-                    val matchingDetection = response.detections.firstOrNull { it.class_id == cls }
-                    ConfirmedItem(
-                        class_id = cls,
-                        display_name = matchingDetection?.display_name ?: cls,
-                        count = count,
-                        max_conf = matchingDetection?.confidence ?: 0.5f
+                val tallyItems = mutableListOf<ConfirmedItem>()
+                for ((cls, count) in trackerTally) {
+                    if (!tracker.isConfirmed(cls)) {
+                        continue
+                    }
+                    var matchingDetection: DetectionItem? = null
+                    for (det in response.detections) {
+                        if (det.class_id == cls && (det.temporally_confirmed || tracker.isConfirmed(cls))) {
+                            matchingDetection = det
+                            break
+                        }
+                    }
+                    tallyItems.add(
+                        ConfirmedItem(
+                            class_id = cls,
+                            display_name = matchingDetection?.display_name ?: cls,
+                            count = count,
+                            max_conf = matchingDetection?.confidence ?: 0.5f
+                        )
                     )
                 }
+                tallyItems
             } else {
                 state.confirmedInventory
             }

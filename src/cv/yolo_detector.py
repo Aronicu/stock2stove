@@ -13,6 +13,7 @@ from src.server.config import (
     UNIFIED_CLASSES,
     YOLO_COCO_PT_PATH,
     YOLO_WORLD_PT_PATH,
+    get_class_conf_threshold,
     get_display_name,
     normalize_class_id,
 )
@@ -162,7 +163,7 @@ def classify_patch_hsv(patch_bgr):
     if mean_h < 12.0 or mean_h > 165.0:
         if mean_s > 85.0:
             return "canned_tomato", 0.89
-        return "canned_tuna_meat", 0.82
+        return "coffee_condiment", 0.80
 
     if 12.0 <= mean_h < 26.0:
         if aspect < 0.85:
@@ -176,8 +177,6 @@ def classify_patch_hsv(patch_bgr):
         return "fresh_produce", 0.85
 
     if 88.0 <= mean_h < 132.0:
-        if aspect >= 0.95:
-            return "canned_tuna_meat", 0.86
         return "milk_dairy", 0.83
 
     return "coffee_condiment", 0.81
@@ -262,30 +261,6 @@ def run_opencv_region_fallback(bgr_image, conf_threshold=DEFAULT_CONF_THRESHOLD,
             "temporally_confirmed": False,
         })
 
-    if len(detections) == 0 and float(conf_threshold) <= 0.90:
-        quadrants = [
-            (int(w * 0.10), int(h * 0.14), int(w * 0.44), int(h * 0.84)),
-            (int(w * 0.50), int(h * 0.16), int(w * 0.88), int(h * 0.86)),
-        ]
-        for q in quadrants:
-            qx1, qy1, qx2, qy2 = q
-            patch = bgr_image[qy1:qy2, qx1:qx2]
-            cls_id, conf = classify_patch_hsv(patch)
-            if conf >= float(conf_threshold):
-                detections.append({
-                    "class_id": cls_id,
-                    "display_name": get_display_name(cls_id),
-                    "confidence": round(conf, 2),
-                    "bbox_norm": [
-                        round(float(qx1) / float(w), 4),
-                        round(float(qy1) / float(h), 4),
-                        round(float(qx2) / float(w), 4),
-                        round(float(qy2) / float(h), 4),
-                    ],
-                    "polygon_norm": None,
-                    "temporally_confirmed": False,
-                })
-
     deduped = apply_class_nms(detections, iou_threshold=iou_threshold)
     return deduped
 
@@ -308,9 +283,10 @@ def run_yolo_detection(
 
     if model is not None:
         try:
+            predict_conf = min(float(conf_threshold), 0.45)
             results = model.predict(
                 source=bgr_image,
-                conf=float(conf_threshold),
+                conf=predict_conf,
                 iou=float(iou_threshold),
                 imgsz=640,
                 verbose=False,
@@ -340,11 +316,29 @@ def run_yolo_detection(
                     else:
                         cls_id = normalize_class_id(raw_label)
 
+                    req_conf = get_class_conf_threshold(cls_id, conf_threshold)
+                    if c_val < req_conf:
+                        continue
+
+                    x1_n = max(0.0, min(1.0, float(bx1) / float(w)))
+                    y1_n = max(0.0, min(1.0, float(by1) / float(h)))
+                    x2_n = max(0.0, min(1.0, float(bx2) / float(w)))
+                    y2_n = max(0.0, min(1.0, float(by2) / float(h)))
+                    bw_n = x2_n - x1_n
+                    bh_n = y2_n - y1_n
+                    if bw_n <= 0.005 or bh_n <= 0.005:
+                        continue
+                    if bw_n * bh_n > 0.60:
+                        continue
+                    aspect = max(bw_n / max(bh_n, 1e-6), bh_n / max(bw_n, 1e-6))
+                    if aspect > 6.0:
+                        continue
+
                     bbox_norm = [
-                        round(max(0.0, min(1.0, float(bx1) / float(w))), 4),
-                        round(max(0.0, min(1.0, float(by1) / float(h))), 4),
-                        round(max(0.0, min(1.0, float(bx2) / float(w))), 4),
-                        round(max(0.0, min(1.0, float(by2) / float(h))), 4),
+                        round(x1_n, 4),
+                        round(y1_n, 4),
+                        round(x2_n, 4),
+                        round(y2_n, 4),
                     ]
                     detections.append({
                         "class_id": cls_id,
@@ -356,22 +350,28 @@ def run_yolo_detection(
                     })
 
             deduped = apply_class_nms(detections, iou_threshold=iou_threshold)
-            if len(deduped) > 0:
-                return deduped, {
-                    "detector_mode": normalized_mode,
-                    "backend": "ultralytics",
-                    "weights_path": model_path,
-                }
+            return deduped, {
+                "detector_mode": normalized_mode,
+                "backend": "ultralytics",
+                "weights_path": model_path,
+            }
         except Exception:
             pass
 
-    fallback_dets = run_opencv_region_fallback(
-        bgr_image,
-        conf_threshold=conf_threshold,
-        iou_threshold=iou_threshold,
-    )
-    return fallback_dets, {
+    if normalized_mode in ("orb_baseline", "sift_baseline"):
+        fallback_dets = run_opencv_region_fallback(
+            bgr_image,
+            conf_threshold=conf_threshold,
+            iou_threshold=iou_threshold,
+        )
+        return fallback_dets, {
+            "detector_mode": normalized_mode,
+            "backend": "opencv_hybrid_fallback",
+            "weights_path": "opencv_hybrid_fallback",
+        }
+
+    return [], {
         "detector_mode": normalized_mode,
-        "backend": "opencv_hybrid_fallback",
-        "weights_path": "opencv_hybrid_fallback",
+        "backend": "no_model_empty",
+        "weights_path": str(model_path) if model_path else "none",
     }

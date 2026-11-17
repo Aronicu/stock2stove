@@ -1,8 +1,8 @@
 task: detect
 mode: train
-model: models/yolov8n_warmup.pt
+model: models/yolov8n_clean_stage1.pt
 data: data/dataset_yolo/data.yaml
-epochs: 5
+epochs: 15
 time: null
 patience: 15
 batch: 16
@@ -24,12 +24,12 @@ deterministic: true
 single_cls: false
 rect: false
 cos_lr: false
-close_mosaic: 10
+close_mosaic: 8
 resume: false
 amp: true
 fraction: 1.0
 profile: false
-freeze: 10
+freeze: 0
 multi_scale: 0.0
 compile: false
 channels_last: null
