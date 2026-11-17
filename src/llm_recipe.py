@@ -11,6 +11,7 @@ import time
 from typing import List
 
 from src.server.config import (
+    GEMINI_RECIPE_MODEL,
     LLM_TIMEOUT_SECONDS,
     OUTPUTS_DIR,
     get_display_name,
@@ -294,11 +295,56 @@ def query_live_llm_worker(prompt, gemini_key, openai_key):
     if gemini_key:
         from google import genai
         client = genai.Client(api_key=gemini_key)
+        if hasattr(client, "interactions"):
+            recipe_schema = {
+                "type": "object",
+                "properties": {
+                    "recipes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "title": {"type": "string"},
+                                "prep_time_mins": {"type": "integer"},
+                                "difficulty": {"type": "string"},
+                                "storage_zones_used": {"type": "array", "items": {"type": "string"}},
+                                "matched_ingredients": {"type": "array", "items": {"type": "string"}},
+                                "additional_staples": {"type": "array", "items": {"type": "string"}},
+                                "steps": {"type": "array", "items": {"type": "string"}},
+                                "zero_waste_tip": {"type": "string"},
+                            },
+                            "required": [
+                                "id",
+                                "title",
+                                "prep_time_mins",
+                                "difficulty",
+                                "storage_zones_used",
+                                "matched_ingredients",
+                                "additional_staples",
+                                "steps",
+                                "zero_waste_tip",
+                            ],
+                        },
+                    }
+                },
+                "required": ["recipes"],
+            }
+            interaction = client.interactions.create(
+                model=GEMINI_RECIPE_MODEL,
+                input=prompt,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": recipe_schema,
+                },
+            )
+            return interaction.output_text, GEMINI_RECIPE_MODEL
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_RECIPE_MODEL,
             contents=prompt,
         )
-        return response.text, "gemini-2.5-flash"
+        return response.text, GEMINI_RECIPE_MODEL
 
     if openai_key:
         from openai import OpenAI
@@ -428,8 +474,14 @@ def generate_recipes_from_inventory(detected_items: List[str], api_key: str = No
         try:
             from google import genai
             client = genai.Client(api_key=api_key)
+            if hasattr(client, "interactions"):
+                interaction = client.interactions.create(
+                    model=GEMINI_RECIPE_MODEL,
+                    input=prompt,
+                )
+                return interaction.output_text
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model=GEMINI_RECIPE_MODEL,
                 contents=prompt,
             )
             return response.text

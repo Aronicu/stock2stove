@@ -10,8 +10,9 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.cv import yolo_detector
+from src.cv.gemini_detector import run_gemini_detection
 from src.cv.yolo_detector import check_ultralytics_available, run_yolo_detection
-from src.server.config import UNIFIED_CLASSES, normalize_class_id
+from src.server.config import GEMINI_AUTOLABEL_MODEL, UNIFIED_CLASSES, normalize_class_id
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
@@ -54,30 +55,38 @@ def bbox_xyxy_to_yolo(bbox_norm):
     return [round(xc, 6), round(yc, 6), round(w, 6), round(h, 6)]
 
 
-def auto_label_image(bgr_image, conf_threshold=0.45, model_path=None):
+def auto_label_image(bgr_image, conf_threshold=0.45, model_path=None, backend="yolo_world"):
     if bgr_image is None or bgr_image.size == 0:
         return []
 
-    if model_path and os.path.exists(str(model_path)) and check_ultralytics_available():
-        resolved_model = os.path.abspath(str(model_path))
-        if yolo_detector.MODEL_REGISTRY.get("yolo_world_path") != resolved_model:
-            try:
-                from ultralytics import YOLO
+    if str(backend).strip().lower() == "gemini":
+        detections, _ = run_gemini_detection(
+            bgr_image,
+            conf_threshold=float(conf_threshold),
+            model_name=GEMINI_AUTOLABEL_MODEL,
+            use_cache=False,
+        )
+    else:
+        if model_path and os.path.exists(str(model_path)) and check_ultralytics_available():
+            resolved_model = os.path.abspath(str(model_path))
+            if yolo_detector.MODEL_REGISTRY.get("yolo_world_path") != resolved_model:
+                try:
+                    from ultralytics import YOLO
 
-                loaded_model = YOLO(resolved_model)
-                if "world" in os.path.basename(resolved_model).lower():
-                    prompts, _ = yolo_detector.build_world_prompts()
-                    loaded_model.set_classes(prompts)
-                yolo_detector.MODEL_REGISTRY["yolo_world_model"] = loaded_model
-                yolo_detector.MODEL_REGISTRY["yolo_world_path"] = resolved_model
-            except Exception:
-                pass
+                    loaded_model = YOLO(resolved_model)
+                    if "world" in os.path.basename(resolved_model).lower():
+                        prompts, _ = yolo_detector.build_world_prompts()
+                        loaded_model.set_classes(prompts)
+                    yolo_detector.MODEL_REGISTRY["yolo_world_model"] = loaded_model
+                    yolo_detector.MODEL_REGISTRY["yolo_world_path"] = resolved_model
+                except Exception:
+                    pass
 
-    detections, _ = run_yolo_detection(
-        bgr_image,
-        mode="yolo_world",
-        conf_threshold=float(conf_threshold),
-    )
+        detections, _ = run_yolo_detection(
+            bgr_image,
+            mode="yolo_world",
+            conf_threshold=float(conf_threshold),
+        )
 
     annotations = []
     for det in detections:
@@ -100,7 +109,7 @@ def auto_label_image(bgr_image, conf_threshold=0.45, model_path=None):
     return annotations
 
 
-def auto_label_directory(input_dir, output_dir, conf_threshold=0.45, model_path=None):
+def auto_label_directory(input_dir, output_dir, conf_threshold=0.45, model_path=None, backend="yolo_world"):
     input_path = str(input_dir)
     output_path = str(output_dir)
     if not os.path.isdir(input_path):
@@ -137,6 +146,7 @@ def auto_label_directory(input_dir, output_dir, conf_threshold=0.45, model_path=
             bgr,
             conf_threshold=conf_threshold,
             model_path=model_path,
+            backend=backend,
         )
 
         base_name = os.path.basename(img_path)
@@ -190,6 +200,7 @@ def main():
     parser.add_argument("--output", type=str, default="data/auto_labeled")
     parser.add_argument("--conf", type=float, default=0.45)
     parser.add_argument("--model", type=str, default="models/yolov8s-worldv2.pt")
+    parser.add_argument("--backend", type=str, choices=["yolo_world", "gemini"], default="yolo_world")
     args = parser.parse_args()
 
     summary = auto_label_directory(
@@ -197,6 +208,7 @@ def main():
         args.output,
         conf_threshold=args.conf,
         model_path=args.model,
+        backend=args.backend,
     )
     print(f"Input directory: {summary['input_dir']}")
     print(f"Output directory: {summary['output_dir']}")

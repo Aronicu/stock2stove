@@ -77,13 +77,21 @@ def reset_tracker_state(tracker_state):
     return tracker_state
 
 
-def update_temporal_tracker(tracker_state, detections, conf_threshold=None):
+def update_temporal_tracker(
+    tracker_state,
+    detections,
+    conf_threshold=None,
+    min_hits_override=None,
+    fast_confirm_conf=None,
+):
     active_conf = float(tracker_state.get("conf_threshold", DEFAULT_CONF_THRESHOLD))
     if conf_threshold is not None:
         active_conf = float(conf_threshold)
 
     iou_threshold = float(tracker_state.get("iou_threshold", NMS_IOU_THRESHOLD))
     min_hits = int(tracker_state.get("min_hits", TEMPORAL_MIN_HITS))
+    if min_hits_override is not None:
+        min_hits = max(1, int(min_hits_override))
 
     filtered_input = []
     for det in detections:
@@ -148,7 +156,9 @@ def update_temporal_tracker(tracker_state, detections, conf_threshold=None):
     sorted_class_ids = sorted(list(aggregate.keys()))
     for cls_id in sorted_class_ids:
         stats = aggregate[cls_id]
-        if stats["hits"] >= min_hits:
+        is_hit_confirmed = stats["hits"] >= min_hits
+        is_fast_confirmed = fast_confirm_conf is not None and float(stats["max_conf"]) >= float(fast_confirm_conf)
+        if is_hit_confirmed or is_fast_confirmed:
             confirmed_set.add(cls_id)
             confirmed_inventory.append({
                 "class_id": cls_id,

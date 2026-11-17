@@ -49,11 +49,17 @@ MIN_HOMOGRAPHY_INLIERS = 6
 
 LLM_TIMEOUT_SECONDS = 2.5
 
+GEMINI_VISION_MODEL = os.getenv("STOCK2STOVE_GEMINI_VISION_MODEL", "gemini-3.5-flash-lite")
+GEMINI_RECIPE_MODEL = os.getenv("STOCK2STOVE_GEMINI_RECIPE_MODEL", "gemini-4-hydrogen")
+GEMINI_AUTOLABEL_MODEL = os.getenv("STOCK2STOVE_GEMINI_AUTOLABEL_MODEL", "gemini-4-hydrogen")
+
 SUPPORTED_DETECTOR_MODES = [
     "yolov8",
     "orb_baseline",
     "sift_baseline",
     "yolo_world",
+    "gemini_vision",
+    "hybrid_gemini",
 ]
 
 UNIFIED_CLASSES = [

@@ -11,6 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.cv.baseline_detector import ensure_reference_templates, run_baseline_detection
+from src.cv.gemini_detector import (
+    get_gemini_detector_status,
+    run_gemini_detection,
+    run_hybrid_gemini_detection,
+)
 from src.cv.preprocess import (
     decode_base64_image,
     decode_image_bytes,
@@ -74,6 +79,16 @@ def execute_single_frame_pipeline(
         )
         diagnostics["good_matches"] = int(extra_diag.get("good_matches", 0))
         diagnostics["ransac_inliers"] = int(extra_diag.get("ransac_inliers", 0))
+    elif mode == "gemini_vision":
+        raw_dets, _ = run_gemini_detection(
+            letterboxed,
+            conf_threshold=float(conf_threshold),
+        )
+    elif mode == "hybrid_gemini":
+        raw_dets, _ = run_hybrid_gemini_detection(
+            letterboxed,
+            conf_threshold=float(conf_threshold),
+        )
     else:
         raw_dets, _ = run_yolo_detection(
             letterboxed,
@@ -82,10 +97,14 @@ def execute_single_frame_pipeline(
         )
 
     if session_id is not None:
+        min_hits_override = 1 if mode == "gemini_vision" else None
+        fast_confirm_conf = 0.80 if mode in ("gemini_vision", "hybrid_gemini") else None
         dets, confirmed = record_session_frame(
             session_id,
             raw_dets,
             conf_threshold=float(conf_threshold),
+            min_hits_override=min_hits_override,
+            fast_confirm_conf=fast_confirm_conf,
         )
     else:
         temp_tracker = create_tracker_state(
@@ -185,6 +204,7 @@ async def extract_bgr_from_request(request):
 async def handle_health(request: Request):
     ensure_reference_templates(templates_dir=TEMPLATES_DIR, samples_dir=SAMPLES_DIR)
     model_status = get_yolo_model_status()
+    model_status["gemini_status"] = get_gemini_detector_status()
     hardware_info = {
         "os": platform.system(),
         "os_release": platform.release(),
@@ -233,6 +253,22 @@ async def handle_scan_image(request: Request):
         session_id=None,
         frame_id=1,
     )
+    gemini_res = execute_single_frame_pipeline(
+        bgr_image,
+        detector_mode="gemini_vision",
+        enable_clahe=enable_clahe,
+        conf_threshold=conf_threshold,
+        session_id=None,
+        frame_id=1,
+    )
+    hybrid_res = execute_single_frame_pipeline(
+        bgr_image,
+        detector_mode="hybrid_gemini",
+        enable_clahe=enable_clahe,
+        conf_threshold=conf_threshold,
+        session_id=None,
+        frame_id=1,
+    )
 
     yolo_confs = []
     for d in yolo_res["detections"]:
@@ -243,10 +279,18 @@ async def handle_scan_image(request: Request):
     sift_confs = []
     for d in sift_res["detections"]:
         sift_confs.append(float(d["confidence"]))
+    gemini_confs = []
+    for d in gemini_res["detections"]:
+        gemini_confs.append(float(d["confidence"]))
+    hybrid_confs = []
+    for d in hybrid_res["detections"]:
+        hybrid_confs.append(float(d["confidence"]))
 
     yolo_mean_conf = round(float(np.mean(yolo_confs)), 2) if yolo_confs else 0.0
     orb_mean_conf = round(float(np.mean(orb_confs)), 2) if orb_confs else 0.0
     sift_mean_conf = round(float(np.mean(sift_confs)), 2) if sift_confs else 0.0
+    gemini_mean_conf = round(float(np.mean(gemini_confs)), 2) if gemini_confs else 0.0
+    hybrid_mean_conf = round(float(np.mean(hybrid_confs)), 2) if hybrid_confs else 0.0
 
     comparison = {
         "yolov8": {
@@ -255,6 +299,20 @@ async def handle_scan_image(request: Request):
             "detection_count": len(yolo_res["detections"]),
             "mean_confidence": yolo_mean_conf,
             "detections": yolo_res["detections"],
+        },
+        "gemini_vision": {
+            "inference_ms": gemini_res["inference_ms"],
+            "fps": gemini_res["fps"],
+            "detection_count": len(gemini_res["detections"]),
+            "mean_confidence": gemini_mean_conf,
+            "detections": gemini_res["detections"],
+        },
+        "hybrid_gemini": {
+            "inference_ms": hybrid_res["inference_ms"],
+            "fps": hybrid_res["fps"],
+            "detection_count": len(hybrid_res["detections"]),
+            "mean_confidence": hybrid_mean_conf,
+            "detections": hybrid_res["detections"],
         },
         "orb_baseline": {
             "inference_ms": orb_res["inference_ms"],

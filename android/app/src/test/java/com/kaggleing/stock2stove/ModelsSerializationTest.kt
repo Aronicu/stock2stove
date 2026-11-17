@@ -213,9 +213,13 @@ class ModelsSerializationTest {
         assertEquals("fridge", fridge.contextKey)
 
         val yolo = DetectorDefenseMode.YOLO_V8N
+        val hybrid = DetectorDefenseMode.HYBRID_GEMINI
+        val gemini = DetectorDefenseMode.GEMINI_VISION
         val orb = DetectorDefenseMode.ORB_BASELINE
         val sift = DetectorDefenseMode.SIFT_BASELINE
         assertEquals("yolov8", yolo.wireMode)
+        assertEquals("hybrid_gemini", hybrid.wireMode)
+        assertEquals("gemini_vision", gemini.wireMode)
         assertEquals("orb_baseline", orb.wireMode)
         assertEquals("sift_baseline", sift.wireMode)
     }

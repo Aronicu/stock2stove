@@ -11,11 +11,16 @@ from src.cv.preprocess import (
     preprocess_frame,
     unletterbox_bbox_norm,
 )
+from src.cv.gemini_detector import (
+    parse_gemini_boxes,
+    run_gemini_detection,
+    run_hybrid_gemini_detection,
+)
 from src.cv.temporal_tracker import create_tracker_state, update_temporal_tracker
 from src.cv.yolo_detector import run_yolo_detection
 from src.llm_recipe import generate_recipes_from_inventory, generate_structured_recipes
 from src.server.app import app
-from src.server.config import SAMPLES_DIR, TEMPLATES_DIR
+from src.server.config import SAMPLES_DIR, TEMPLATES_DIR, UNIFIED_CLASSES
 
 
 def load_sample_bgr(index=1):
@@ -156,6 +161,8 @@ def test_task_1_5_fastapi_server():
     assert img_resp.status_code == 200
     img_data = img_resp.json()
     assert "yolov8" in img_data
+    assert "gemini_vision" in img_data
+    assert "hybrid_gemini" in img_data
     assert "orb_baseline" in img_data
     assert "sift_baseline" in img_data
 
@@ -209,3 +216,67 @@ def test_task_1_5_fastapi_server():
         bin_msg = ws.receive_json()
         assert bin_msg["frame_id"] >= 4
         assert len(bin_msg["confirmed_inventory"]) >= 1
+
+        ws.send_json({
+            "frame_id": 5,
+            "detector_mode": "gemini_vision",
+            "enable_clahe": True,
+            "conf_threshold": 0.45,
+            "image_b64": sample_b64,
+            "reset_session": True,
+        })
+        gem_msg = ws.receive_json()
+        assert gem_msg["frame_id"] == 5
+        assert gem_msg["detector_mode"] == "gemini_vision"
+        assert len(gem_msg["detections"]) >= 1
+
+        ws.send_json({
+            "frame_id": 6,
+            "detector_mode": "hybrid_gemini",
+            "enable_clahe": True,
+            "conf_threshold": 0.45,
+            "image_b64": sample_b64,
+        })
+        hyb_msg = ws.receive_json()
+        assert hyb_msg["frame_id"] == 6
+        assert hyb_msg["detector_mode"] == "hybrid_gemini"
+        assert len(hyb_msg["detections"]) >= 1
+
+
+def test_task_1_6_gemini_detector():
+    raw_json = (
+        '{"boxes": ['
+        '{"box_2d": [100, 200, 450, 600], "class_id": "canned_tomato", "display_name": "Del Monte Tomato Sauce", "confidence": 0.94},'
+        '{"box_2d": [500, 50, 900, 350], "class_id": "pasta_noodles", "display_name": "Spaghetti Pack", "confidence": 0.88}'
+        ']}'
+    )
+    parsed = parse_gemini_boxes(raw_json, conf_threshold=0.50)
+    assert len(parsed) == 2
+    assert parsed[0]["class_id"] == "canned_tomato"
+    assert parsed[0]["bbox_norm"] == [0.2, 0.1, 0.6, 0.45]
+    assert parsed[1]["class_id"] == "pasta_noodles"
+    assert parsed[1]["bbox_norm"] == [0.05, 0.5, 0.35, 0.9]
+
+    valid_ids = set()
+    for entry in UNIFIED_CLASSES:
+        valid_ids.add(entry["class_id"])
+
+    sample = load_sample_bgr(1)
+    prep_out = preprocess_frame(sample, enable_clahe=True, target_size=640)
+    gem_dets, gem_meta = run_gemini_detection(prep_out["letterboxed_bgr"], conf_threshold=0.45)
+    assert gem_meta["detector_mode"] == "gemini_vision"
+    assert len(gem_dets) >= 1
+    for det in gem_dets:
+        assert det["class_id"] in valid_ids
+        box = det["bbox_norm"]
+        assert 0.0 <= box[0] < box[2] <= 1.0
+        assert 0.0 <= box[1] < box[3] <= 1.0
+
+    hyb_dets, hyb_meta = run_hybrid_gemini_detection(prep_out["letterboxed_bgr"], conf_threshold=0.45)
+    assert hyb_meta["detector_mode"] == "hybrid_gemini"
+    assert len(hyb_dets) >= 1
+    for det in hyb_dets:
+        assert det["class_id"] in valid_ids
+        box = det["bbox_norm"]
+        assert 0.0 <= box[0] < box[2] <= 1.0
+        assert 0.0 <= box[1] < box[3] <= 1.0

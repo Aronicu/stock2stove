@@ -19,6 +19,10 @@ def validate_detector_mode(mode_value):
         return "sift_baseline"
     if cleaned in ("world", "yolov8s-worldv2"):
         return "yolo_world"
+    if cleaned in ("gemini", "gemini_vision", "gemini-4-hydrogen", "gemini-3.5-flash-lite"):
+        return "gemini_vision"
+    if cleaned in ("hybrid", "hybrid_gemini", "yolo_gemini"):
+        return "hybrid_gemini"
     return "yolov8"
 
 

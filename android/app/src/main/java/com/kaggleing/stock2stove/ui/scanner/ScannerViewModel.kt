@@ -58,6 +58,7 @@ class ScannerViewModel(
 
     val tracker = TemporalConfirmationTracker()
     private var tickerJob: Job? = null
+    private var lastGeminiFrameTimeMs: Long = 0L
 
     init {
         startCountdownTicker()
@@ -81,6 +82,7 @@ class ScannerViewModel(
             )
         }
         tracker.reset()
+        lastGeminiFrameTimeMs = 0L
         AlphaTelemetryLogger.getDefault().logEvent("SCANNER", "INFO", "Scan session started: $sId")
         connectWebSocket(wsUrl)
     }
@@ -185,6 +187,14 @@ class ScannerViewModel(
             return
         }
 
+        if (state.selectedMode == DetectorDefenseMode.GEMINI_VISION) {
+            val nowMs = System.currentTimeMillis()
+            if (lastGeminiFrameTimeMs != 0L && (nowMs - lastGeminiFrameTimeMs) < 600L) {
+                return
+            }
+            lastGeminiFrameTimeMs = nowMs
+        }
+
         val nextFrameId = state.frameCount + 1L
         _uiState.update { it.copy(frameCount = nextFrameId) }
 
@@ -201,6 +211,7 @@ class ScannerViewModel(
     }
 
     fun setDetectorMode(mode: DetectorDefenseMode) {
+        lastGeminiFrameTimeMs = 0L
         _uiState.update { it.copy(selectedMode = mode) }
     }
 
@@ -218,6 +229,7 @@ class ScannerViewModel(
 
     fun resetScan() {
         tracker.reset()
+        lastGeminiFrameTimeMs = 0L
         _uiState.update {
             it.copy(
                 progressSec = 0.0f,

@@ -50,6 +50,16 @@ def test_task_2_1_extract_frames_and_auto_label(tmp_path):
         assert 0.0 <= float(item["w"]) <= 1.0
         assert 0.0 <= float(item["h"]) <= 1.0
 
+    gem_preds = auto_label_image(sample_bgr, conf_threshold=0.45, backend="gemini")
+    assert isinstance(gem_preds, list)
+    assert len(gem_preds) >= 1
+    for item in gem_preds:
+        assert 0 <= int(item["class_idx"]) <= 7
+        assert 0.0 <= float(item["xc"]) <= 1.0
+        assert 0.0 <= float(item["yc"]) <= 1.0
+        assert 0.0 <= float(item["w"]) <= 1.0
+        assert 0.0 <= float(item["h"]) <= 1.0
+
     subset_dir = tmp_path / "subset_frames"
     subset_dir.mkdir(parents=True, exist_ok=True)
     for idx, frame_path in enumerate(extracted_frames[:2]):

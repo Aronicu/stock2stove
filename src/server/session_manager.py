@@ -57,12 +57,20 @@ def update_session_config(session_id, detector_mode=None, enable_clahe=None, con
     return session
 
 
-def record_session_frame(session_id, detections, conf_threshold=None):
+def record_session_frame(
+    session_id,
+    detections,
+    conf_threshold=None,
+    min_hits_override=None,
+    fast_confirm_conf=None,
+):
     session = get_or_create_session(session_id)
     session["frame_id"] = int(session.get("frame_id", 0)) + 1
     annotated_dets, confirmed_inventory = update_temporal_tracker(
         session["tracker"],
         detections,
         conf_threshold=conf_threshold,
+        min_hits_override=min_hits_override,
+        fast_confirm_conf=fast_confirm_conf,
     )
     return annotated_dets, confirmed_inventory
