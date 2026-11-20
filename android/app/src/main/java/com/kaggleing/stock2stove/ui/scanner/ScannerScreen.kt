@@ -1,5 +1,6 @@
 package com.kaggleing.stock2stove.ui.scanner
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -10,15 +11,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Kitchen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -36,15 +40,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kaggleing.stock2stove.data.model.ConfirmedItem
 import com.kaggleing.stock2stove.data.model.ScanMode
+import com.kaggleing.stock2stove.data.model.UnifiedItemClass
 
 @Composable
 fun ScannerScreen(
@@ -56,6 +65,7 @@ fun ScannerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val chipsScrollState = rememberScrollState()
+    val scannedListScrollState = rememberScrollState()
 
     LaunchedEffect(serverWsUrl, scanMode) {
         viewModel.initScan(serverWsUrl, scanMode)
@@ -190,36 +200,147 @@ fun ScannerScreen(
                     }
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(chipsScrollState),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (uiState.confirmedInventory.isEmpty()) {
-                        Text(
-                            text = "Pan slowly across shelves or fridge...",
-                            color = Color.Gray,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    } else {
-                        for (item in uiState.confirmedInventory) {
-                            FilterChip(
-                                selected = true,
-                                onClick = {},
-                                label = {
-                                    Text(
-                                        text = "${item.display_name} x${item.count}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF1B5E20),
-                                    selectedLabelColor = Color(0xFFB9F6CA)
-                                )
+                if (uiState.isComplete) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 220.dp)
+                            .verticalScroll(scannedListScrollState),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (uiState.confirmedInventory.isEmpty()) {
+                            Text(
+                                text = "No items detected. Tap Reset to scan again.",
+                                color = Color.Gray,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(vertical = 4.dp)
                             )
+                        } else {
+                            for (item in uiState.confirmedInventory) {
+                                val cropBitmap = remember(item.crop_jpeg_b64) {
+                                    CameraFrameProcessor.decodeBase64Bitmap(item.crop_jpeg_b64)
+                                }
+                                val displayName = item.display_name.ifBlank {
+                                    UnifiedItemClass.normalize(item.class_id).displayName
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF1E1E1E), RoundedCornerShape(10.dp))
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    if (cropBitmap != null) {
+                                        Image(
+                                            bitmap = cropBitmap.asImageBitmap(),
+                                            contentDescription = displayName,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xFF2C2C2C)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Kitchen,
+                                                contentDescription = displayName,
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = displayName,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        if (item.max_conf > 0.0f) {
+                                            Text(
+                                                text = "${(item.max_conf * 100).toInt()}% conf",
+                                                color = Color(0xFFB9F6CA),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFF1B5E20), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "x${item.count}",
+                                            color = Color(0xFFB9F6CA),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(chipsScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (uiState.confirmedInventory.isEmpty()) {
+                            Text(
+                                text = "Pan slowly across shelves or fridge...",
+                                color = Color.Gray,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        } else {
+                            for (item in uiState.confirmedInventory) {
+                                val cropBitmap = remember(item.crop_jpeg_b64) {
+                                    CameraFrameProcessor.decodeBase64Bitmap(item.crop_jpeg_b64)
+                                }
+                                FilterChip(
+                                    selected = true,
+                                    onClick = {},
+                                    leadingIcon = if (cropBitmap != null) {
+                                        {
+                                            Image(
+                                                bitmap = cropBitmap.asImageBitmap(),
+                                                contentDescription = item.display_name,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(CircleShape)
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                    label = {
+                                        Text(
+                                            text = "${item.display_name} x${item.count}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF1B5E20),
+                                        selectedLabelColor = Color(0xFFB9F6CA)
+                                    )
+                                )
+                            }
                         }
                     }
                 }

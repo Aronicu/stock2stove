@@ -112,6 +112,7 @@ def update_temporal_tracker(
             "bbox_norm": list(bbox),
             "polygon_norm": poly,
             "temporally_confirmed": False,
+            "crop_jpeg_b64": det.get("crop_jpeg_b64"),
         })
 
     deduped = apply_class_nms(filtered_input, iou_threshold=iou_threshold)
@@ -120,16 +121,22 @@ def update_temporal_tracker(
     for det in deduped:
         cls_id = det["class_id"]
         conf_val = det["confidence"]
+        crop_b64 = det.get("crop_jpeg_b64")
         if cls_id not in frame_class_summary:
             frame_class_summary[cls_id] = {
                 "count": 1,
                 "max_conf": conf_val,
                 "display_name": det["display_name"],
+                "crop_jpeg_b64": crop_b64,
             }
         else:
             frame_class_summary[cls_id]["count"] += 1
             if conf_val > frame_class_summary[cls_id]["max_conf"]:
                 frame_class_summary[cls_id]["max_conf"] = conf_val
+                if crop_b64:
+                    frame_class_summary[cls_id]["crop_jpeg_b64"] = crop_b64
+            elif not frame_class_summary[cls_id].get("crop_jpeg_b64") and crop_b64:
+                frame_class_summary[cls_id]["crop_jpeg_b64"] = crop_b64
 
     tracker_state["frames_processed"] = int(tracker_state.get("frames_processed", 0)) + 1
     tracker_state["window"].append(frame_class_summary)
@@ -137,12 +144,14 @@ def update_temporal_tracker(
     aggregate = {}
     for frame_entry in tracker_state["window"]:
         for cls_id, info in frame_entry.items():
+            info_crop = info.get("crop_jpeg_b64")
             if cls_id not in aggregate:
                 aggregate[cls_id] = {
                     "hits": 1,
                     "max_count": int(info["count"]),
                     "max_conf": float(info["max_conf"]),
                     "display_name": info["display_name"],
+                    "crop_jpeg_b64": info_crop,
                 }
             else:
                 aggregate[cls_id]["hits"] += 1
@@ -150,6 +159,10 @@ def update_temporal_tracker(
                     aggregate[cls_id]["max_count"] = int(info["count"])
                 if float(info["max_conf"]) > aggregate[cls_id]["max_conf"]:
                     aggregate[cls_id]["max_conf"] = float(info["max_conf"])
+                    if info_crop:
+                        aggregate[cls_id]["crop_jpeg_b64"] = info_crop
+                elif not aggregate[cls_id].get("crop_jpeg_b64") and info_crop:
+                    aggregate[cls_id]["crop_jpeg_b64"] = info_crop
 
     confirmed_set = set()
     confirmed_inventory = []
@@ -165,6 +178,7 @@ def update_temporal_tracker(
                 "display_name": stats["display_name"],
                 "count": int(stats["max_count"]),
                 "max_conf": round(float(stats["max_conf"]), 2),
+                "crop_jpeg_b64": stats.get("crop_jpeg_b64"),
             })
 
     updated_detections = []
@@ -177,6 +191,7 @@ def update_temporal_tracker(
             "bbox_norm": det["bbox_norm"],
             "polygon_norm": det["polygon_norm"],
             "temporally_confirmed": bool(is_confirmed),
+            "crop_jpeg_b64": det.get("crop_jpeg_b64"),
         }
         updated_detections.append(det_copy)
 

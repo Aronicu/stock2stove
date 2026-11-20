@@ -20,3 +20,9 @@ yolov8n.pt
 .DS_Store
 Thumbs.db
 desktop.ini
+*.apk
+outputs/run_*
+outputs/eval_video/
+outputs/demo_annotated*
+
+

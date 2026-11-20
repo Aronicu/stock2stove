@@ -9,6 +9,7 @@ import com.kaggleing.stock2stove.data.model.DiagnosticsData
 import com.kaggleing.stock2stove.data.model.ScanFrameRequest
 import com.kaggleing.stock2stove.data.model.ScanMode
 import com.kaggleing.stock2stove.data.model.ScanResponse
+import com.kaggleing.stock2stove.data.model.UnifiedItemClass
 import com.kaggleing.stock2stove.data.repository.AlphaTelemetryLogger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +60,9 @@ class ScannerViewModel(
     val tracker = TemporalConfirmationTracker()
     private var tickerJob: Job? = null
     private var lastGeminiFrameTimeMs: Long = 0L
+    private val frameCacheLock = Any()
+    private val recentCapturedFrames = LinkedHashMap<Long, ByteArray>()
+    private val bestCropByClass = mutableMapOf<String, Pair<Float, String>>()
 
     init {
         startCountdownTicker()
@@ -83,6 +87,10 @@ class ScannerViewModel(
         }
         tracker.reset()
         lastGeminiFrameTimeMs = 0L
+        synchronized(frameCacheLock) {
+            recentCapturedFrames.clear()
+            bestCropByClass.clear()
+        }
         AlphaTelemetryLogger.getDefault().logEvent("SCANNER", "INFO", "Scan session started: $sId")
         connectWebSocket(wsUrl)
     }
@@ -117,32 +125,91 @@ class ScannerViewModel(
         )
     }
 
+    private fun recordCropForClass(classId: String, confidence: Float, cropB64: String?) {
+        if (classId.isBlank() || cropB64.isNullOrBlank()) {
+            return
+        }
+        synchronized(frameCacheLock) {
+            val existing = bestCropByClass[classId]
+            if (existing == null || confidence >= existing.first) {
+                bestCropByClass[classId] = Pair(confidence, cropB64)
+            }
+        }
+    }
+
+    private fun resolveBestCrop(classId: String, directCrop: String?): String? {
+        synchronized(frameCacheLock) {
+            val exact = bestCropByClass[classId]
+            if (exact != null) {
+                return exact.second
+            }
+            val targetCanonical = UnifiedItemClass.normalizeClassId(classId)
+            for ((key, entry) in bestCropByClass) {
+                if (UnifiedItemClass.normalizeClassId(key) == targetCanonical) {
+                    return entry.second
+                }
+            }
+        }
+        if (!directCrop.isNullOrBlank()) {
+            return directCrop
+        }
+        return null
+    }
+
     fun handleScanResponse(response: ScanResponse) {
-        tracker.recordFrame(response.detections)
+        var frameBytes: ByteArray? = null
+        synchronized(frameCacheLock) {
+            frameBytes = recentCapturedFrames[response.frame_id]
+        }
+
+        val enrichedDetections = mutableListOf<DetectionItem>()
+        for (det in response.detections) {
+            var cropB64 = det.crop_jpeg_b64
+            if (cropB64.isNullOrBlank() && frameBytes != null && det.bbox_norm.size >= 4) {
+                cropB64 = CameraFrameProcessor.cropJpegBase64(frameBytes!!, det.bbox_norm)
+            }
+            if (!cropB64.isNullOrBlank()) {
+                recordCropForClass(det.class_id, det.confidence, cropB64)
+            }
+            enrichedDetections.add(det.copy(crop_jpeg_b64 = cropB64))
+        }
+
+        tracker.recordFrame(enrichedDetections)
         val trackerTally = tracker.calculateConfirmedTally()
         AlphaTelemetryLogger.getDefault().logTelemetry(
             frameId = response.frame_id,
             detectorMode = response.detector_mode,
             inferenceMs = response.inference_ms,
             fps = response.fps,
-            detectionsCount = response.detections.size
+            detectionsCount = enrichedDetections.size
         )
 
         _uiState.update { state ->
             val confirmedServerItems = mutableListOf<ConfirmedItem>()
+            val isGeminiMode = response.detector_mode == "gemini_vision" || response.detector_mode == "hybrid_gemini"
             for (item in response.confirmed_inventory) {
                 var detConfirmed = false
-                for (det in response.detections) {
+                for (det in enrichedDetections) {
                     if (det.class_id == item.class_id && det.temporally_confirmed) {
                         detConfirmed = true
                         break
                     }
                 }
-                if (detConfirmed || tracker.isConfirmed(item.class_id)) {
-                    confirmedServerItems.add(item)
+                var alreadyInInventory = false
+                for (prev in state.confirmedInventory) {
+                    if (prev.class_id == item.class_id) {
+                        alreadyInInventory = true
+                        break
+                    }
+                }
+                if (detConfirmed || tracker.isConfirmed(item.class_id) || isGeminiMode || alreadyInInventory) {
+                    recordCropForClass(item.class_id, item.max_conf, item.crop_jpeg_b64)
+                    val bestCrop = resolveBestCrop(item.class_id, item.crop_jpeg_b64)
+                    confirmedServerItems.add(item.copy(crop_jpeg_b64 = bestCrop))
                 }
             }
-            val mergedInventory = if (confirmedServerItems.isNotEmpty()) {
+
+            val incomingItems = if (confirmedServerItems.isNotEmpty()) {
                 confirmedServerItems
             } else if (trackerTally.isNotEmpty()) {
                 val tallyItems = mutableListOf<ConfirmedItem>()
@@ -151,31 +218,66 @@ class ScannerViewModel(
                         continue
                     }
                     var matchingDetection: DetectionItem? = null
-                    for (det in response.detections) {
+                    for (det in enrichedDetections) {
                         if (det.class_id == cls && (det.temporally_confirmed || tracker.isConfirmed(cls))) {
                             matchingDetection = det
                             break
                         }
                     }
+                    val cropB64 = resolveBestCrop(cls, matchingDetection?.crop_jpeg_b64)
                     tallyItems.add(
                         ConfirmedItem(
                             class_id = cls,
                             display_name = matchingDetection?.display_name ?: cls,
                             count = count,
-                            max_conf = matchingDetection?.confidence ?: 0.5f
+                            max_conf = matchingDetection?.confidence ?: 0.5f,
+                            crop_jpeg_b64 = cropB64
                         )
                     )
                 }
                 tallyItems
             } else {
-                state.confirmedInventory
+                emptyList()
             }
+
+            val mergedMap = LinkedHashMap<String, ConfirmedItem>()
+            for (prev in state.confirmedInventory) {
+                val refreshedCrop = resolveBestCrop(prev.class_id, prev.crop_jpeg_b64)
+                mergedMap[prev.class_id] = prev.copy(crop_jpeg_b64 = refreshedCrop)
+            }
+            for (inc in incomingItems) {
+                val existing = mergedMap[inc.class_id]
+                if (existing != null) {
+                    val bestCount = maxOf(existing.count, inc.count)
+                    val bestConf = maxOf(existing.max_conf, inc.max_conf)
+                    val bestName = if (inc.display_name.isNotBlank()) inc.display_name else existing.display_name
+                    val resolvedIncCrop = resolveBestCrop(inc.class_id, inc.crop_jpeg_b64)
+                    val bestCrop = if (!resolvedIncCrop.isNullOrBlank() && (inc.max_conf >= existing.max_conf || existing.crop_jpeg_b64.isNullOrBlank())) {
+                        resolvedIncCrop
+                    } else {
+                        existing.crop_jpeg_b64
+                    }
+                    mergedMap[inc.class_id] = ConfirmedItem(
+                        class_id = inc.class_id,
+                        display_name = bestName,
+                        count = bestCount,
+                        max_conf = bestConf,
+                        crop_jpeg_b64 = bestCrop
+                    )
+                } else {
+                    mergedMap[inc.class_id] = inc.copy(
+                        crop_jpeg_b64 = resolveBestCrop(inc.class_id, inc.crop_jpeg_b64)
+                    )
+                }
+            }
+
+            val mergedInventory = mergedMap.values.toList()
 
             state.copy(
                 fps = response.fps,
                 inferenceMs = response.inference_ms,
                 diagnostics = response.diagnostics,
-                detections = response.detections,
+                detections = enrichedDetections,
                 confirmedInventory = mergedInventory
             )
         }
@@ -196,6 +298,13 @@ class ScannerViewModel(
         }
 
         val nextFrameId = state.frameCount + 1L
+        synchronized(frameCacheLock) {
+            recentCapturedFrames[nextFrameId] = jpegBytes
+            while (recentCapturedFrames.size > 24) {
+                val oldestKey = recentCapturedFrames.keys.iterator().next()
+                recentCapturedFrames.remove(oldestKey)
+            }
+        }
         _uiState.update { it.copy(frameCount = nextFrameId) }
 
         val request = ScanFrameRequest(
@@ -230,6 +339,10 @@ class ScannerViewModel(
     fun resetScan() {
         tracker.reset()
         lastGeminiFrameTimeMs = 0L
+        synchronized(frameCacheLock) {
+            recentCapturedFrames.clear()
+            bestCropByClass.clear()
+        }
         _uiState.update {
             it.copy(
                 progressSec = 0.0f,

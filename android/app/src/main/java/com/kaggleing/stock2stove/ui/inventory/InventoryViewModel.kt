@@ -23,7 +23,16 @@ class InventoryViewModel : ViewModel() {
             if (existing != null) {
                 val combinedCount = existing.count + item.count
                 val maxConf = maxOf(existing.max_conf, item.max_conf)
-                merged[canonicalId] = existing.copy(count = combinedCount, max_conf = maxConf)
+                val bestCrop = if (!item.crop_jpeg_b64.isNullOrBlank() && (existing.crop_jpeg_b64.isNullOrBlank() || item.max_conf >= existing.max_conf)) {
+                    item.crop_jpeg_b64
+                } else {
+                    existing.crop_jpeg_b64
+                }
+                merged[canonicalId] = existing.copy(
+                    count = combinedCount,
+                    max_conf = maxConf,
+                    crop_jpeg_b64 = bestCrop
+                )
             } else {
                 val displayName = if (item.display_name.isNotBlank()) {
                     item.display_name
@@ -135,7 +144,8 @@ class InventoryViewModel : ViewModel() {
                     class_id = item.class_id,
                     display_name = item.display_name,
                     count = item.count,
-                    storage_zone = zoneKey
+                    storage_zone = zoneKey,
+                    crop_jpeg_b64 = item.crop_jpeg_b64
                 )
             )
         }

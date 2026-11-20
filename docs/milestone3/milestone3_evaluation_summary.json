@@ -1,0 +1,552 @@
+{
+  "hardware": {
+    "os": "Windows 11",
+    "machine": "AMD64",
+    "processor": "AMD64 Family 25 Model 80 Stepping 0, AuthenticAMD",
+    "cpu_threads": 16
+  },
+  "conf_threshold": 0.45,
+  "nms_iou_threshold": 0.45,
+  "eval_iou_threshold": 0.5,
+  "num_test_images": 104,
+  "num_gt_boxes": 261,
+  "preliminary_results": [
+    {
+      "split": "normal",
+      "detector": "orb_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 2,
+      "fp": 45,
+      "fn": 259,
+      "precision": 0.0426,
+      "recall": 0.0077,
+      "f1_score": 0.013,
+      "mAP50": 0.0109,
+      "mAP50_95": 0.0064,
+      "mean_inference_ms": 1837.76,
+      "fps": 0.54
+    },
+    {
+      "split": "normal",
+      "detector": "sift_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 5,
+      "fp": 3,
+      "fn": 256,
+      "precision": 0.625,
+      "recall": 0.0192,
+      "f1_score": 0.0372,
+      "mAP50": 0.0212,
+      "mAP50_95": 0.0112,
+      "mean_inference_ms": 579.63,
+      "fps": 1.73
+    },
+    {
+      "split": "normal",
+      "detector": "yolov8n_pipeline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 214,
+      "fp": 37,
+      "fn": 47,
+      "precision": 0.8526,
+      "recall": 0.8199,
+      "f1_score": 0.8359,
+      "mAP50": 0.7494,
+      "mAP50_95": 0.5814,
+      "mean_inference_ms": 53.0,
+      "fps": 18.87
+    },
+    {
+      "split": "shadowed_sub100lux",
+      "detector": "orb_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 5,
+      "fp": 62,
+      "fn": 256,
+      "precision": 0.0746,
+      "recall": 0.0192,
+      "f1_score": 0.0305,
+      "mAP50": 0.0142,
+      "mAP50_95": 0.0088,
+      "mean_inference_ms": 2049.68,
+      "fps": 0.49
+    },
+    {
+      "split": "shadowed_sub100lux",
+      "detector": "sift_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 3,
+      "fp": 3,
+      "fn": 258,
+      "precision": 0.5,
+      "recall": 0.0115,
+      "f1_score": 0.0225,
+      "mAP50": 0.0187,
+      "mAP50_95": 0.0128,
+      "mean_inference_ms": 430.39,
+      "fps": 2.32
+    },
+    {
+      "split": "shadowed_sub100lux",
+      "detector": "yolov8n_pipeline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 138,
+      "fp": 36,
+      "fn": 123,
+      "precision": 0.7931,
+      "recall": 0.5287,
+      "f1_score": 0.6345,
+      "mAP50": 0.4427,
+      "mAP50_95": 0.3461,
+      "mean_inference_ms": 47.58,
+      "fps": 21.02
+    },
+    {
+      "split": "motion_blur",
+      "detector": "orb_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 1,
+      "fp": 60,
+      "fn": 260,
+      "precision": 0.0164,
+      "recall": 0.0038,
+      "f1_score": 0.0062,
+      "mAP50": 0.0031,
+      "mAP50_95": 0.0006,
+      "mean_inference_ms": 2233.28,
+      "fps": 0.45
+    },
+    {
+      "split": "motion_blur",
+      "detector": "sift_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 0,
+      "fp": 0,
+      "fn": 261,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "mAP50": 0.0,
+      "mAP50_95": 0.0,
+      "mean_inference_ms": 431.81,
+      "fps": 2.32
+    },
+    {
+      "split": "motion_blur",
+      "detector": "yolov8n_pipeline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 135,
+      "fp": 43,
+      "fn": 126,
+      "precision": 0.7584,
+      "recall": 0.5172,
+      "f1_score": 0.615,
+      "mAP50": 0.4362,
+      "mAP50_95": 0.3329,
+      "mean_inference_ms": 49.21,
+      "fps": 20.32
+    },
+    {
+      "split": "angled_perspective",
+      "detector": "orb_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 6,
+      "fp": 60,
+      "fn": 255,
+      "precision": 0.0909,
+      "recall": 0.023,
+      "f1_score": 0.0367,
+      "mAP50": 0.0268,
+      "mAP50_95": 0.0136,
+      "mean_inference_ms": 2151.05,
+      "fps": 0.46
+    },
+    {
+      "split": "angled_perspective",
+      "detector": "sift_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 7,
+      "fp": 3,
+      "fn": 254,
+      "precision": 0.7,
+      "recall": 0.0268,
+      "f1_score": 0.0517,
+      "mAP50": 0.036,
+      "mAP50_95": 0.0128,
+      "mean_inference_ms": 608.63,
+      "fps": 1.64
+    },
+    {
+      "split": "angled_perspective",
+      "detector": "yolov8n_pipeline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 158,
+      "fp": 38,
+      "fn": 103,
+      "precision": 0.8061,
+      "recall": 0.6054,
+      "f1_score": 0.6915,
+      "mAP50": 0.4829,
+      "mAP50_95": 0.2116,
+      "mean_inference_ms": 59.31,
+      "fps": 16.86
+    },
+    {
+      "split": "occluded_20_50pct",
+      "detector": "orb_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 0,
+      "fp": 33,
+      "fn": 261,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "mAP50": 0.0,
+      "mAP50_95": 0.0,
+      "mean_inference_ms": 2260.4,
+      "fps": 0.44
+    },
+    {
+      "split": "occluded_20_50pct",
+      "detector": "sift_baseline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 1,
+      "fp": 0,
+      "fn": 260,
+      "precision": 1.0,
+      "recall": 0.0038,
+      "f1_score": 0.0076,
+      "mAP50": 0.0078,
+      "mAP50_95": 0.0039,
+      "mean_inference_ms": 495.26,
+      "fps": 2.02
+    },
+    {
+      "split": "occluded_20_50pct",
+      "detector": "yolov8n_pipeline",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 105,
+      "fp": 40,
+      "fn": 156,
+      "precision": 0.7241,
+      "recall": 0.4023,
+      "f1_score": 0.5172,
+      "mAP50": 0.3678,
+      "mAP50_95": 0.301,
+      "mean_inference_ms": 50.26,
+      "fps": 19.9
+    },
+    {
+      "split": "cluttered_shelf",
+      "detector": "orb_baseline",
+      "num_images": 21,
+      "num_gt": 148,
+      "tp": 0,
+      "fp": 5,
+      "fn": 148,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "mAP50": 0.0,
+      "mAP50_95": 0.0,
+      "mean_inference_ms": 1826.62,
+      "fps": 0.55
+    },
+    {
+      "split": "cluttered_shelf",
+      "detector": "sift_baseline",
+      "num_images": 21,
+      "num_gt": 148,
+      "tp": 2,
+      "fp": 0,
+      "fn": 146,
+      "precision": 1.0,
+      "recall": 0.0135,
+      "f1_score": 0.0267,
+      "mAP50": 0.0031,
+      "mAP50_95": 0.0012,
+      "mean_inference_ms": 626.93,
+      "fps": 1.6
+    },
+    {
+      "split": "cluttered_shelf",
+      "detector": "yolov8n_pipeline",
+      "num_images": 21,
+      "num_gt": 148,
+      "tp": 126,
+      "fp": 8,
+      "fn": 22,
+      "precision": 0.9403,
+      "recall": 0.8514,
+      "f1_score": 0.8936,
+      "mAP50": 0.819,
+      "mAP50_95": 0.5989,
+      "mean_inference_ms": 53.17,
+      "fps": 18.81
+    }
+  ],
+  "clahe_ablation": [
+    {
+      "split": "normal",
+      "detector": "yolov8n_no_clahe",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 220,
+      "fp": 34,
+      "fn": 41,
+      "precision": 0.8661,
+      "recall": 0.8429,
+      "f1_score": 0.8544,
+      "mAP50": 0.819,
+      "mAP50_95": 0.6454,
+      "mean_inference_ms": 48.27,
+      "fps": 20.72
+    },
+    {
+      "split": "shadowed_sub100lux",
+      "detector": "yolov8n_no_clahe",
+      "num_images": 104,
+      "num_gt": 261,
+      "tp": 96,
+      "fp": 35,
+      "fn": 165,
+      "precision": 0.7328,
+      "recall": 0.3678,
+      "f1_score": 0.4898,
+      "mAP50": 0.301,
+      "mAP50_95": 0.2386,
+      "mean_inference_ms": 44.41,
+      "fps": 22.52
+    }
+  ],
+  "per_class_normal_yolov8n": [
+    {
+      "class_id": "pasta_noodles",
+      "ap50": 0.6063,
+      "precision": 0.8889,
+      "recall": 0.6154
+    },
+    {
+      "class_id": "canned_tomato",
+      "ap50": 0.7989,
+      "precision": 0.8947,
+      "recall": 0.8095
+    },
+    {
+      "class_id": "canned_tuna_meat",
+      "ap50": 0.8594,
+      "precision": 0.8235,
+      "recall": 0.875
+    },
+    {
+      "class_id": "cereal_grains",
+      "ap50": 0.4937,
+      "precision": 0.6087,
+      "recall": 0.7368
+    },
+    {
+      "class_id": "coffee_condiment",
+      "ap50": 0.6684,
+      "precision": 0.7097,
+      "recall": 0.6875
+    },
+    {
+      "class_id": "milk_dairy",
+      "ap50": 0.8812,
+      "precision": 0.8372,
+      "recall": 0.9
+    },
+    {
+      "class_id": "eggs",
+      "ap50": 0.8,
+      "precision": 1.0,
+      "recall": 0.8
+    },
+    {
+      "class_id": "fresh_produce",
+      "ap50": 0.8875,
+      "precision": 0.9479,
+      "recall": 0.8922
+    }
+  ],
+  "video_evaluation": {
+    "clip_name": "demo_pantry_pan.mp4",
+    "total_frames": 60,
+    "resolution": "640x480",
+    "native_fps": 15.0,
+    "expected_unique_items": 9,
+    "predicted_confirmed_items": 5,
+    "clip_count_error": -4,
+    "mean_expected_per_frame": 1.35,
+    "mean_predicted_per_frame": 2.45,
+    "frame_mae": 1.37,
+    "zero_detection_frames": 3,
+    "frame_overcounts": 74,
+    "class_state_switches": 7,
+    "mean_inference_ms": 52.95,
+    "fps": 18.89,
+    "confirmed_counts_by_class": {
+      "cereal_grains": 1,
+      "coffee_condiment": 4
+    }
+  },
+  "false_meat_evaluation": {
+    "false_meat_rate": 0.0087,
+    "false_meat_count": 1,
+    "total_pantry_negatives": 115,
+    "false_meat_images": [
+      "rf_raw_rf_frieburg_0055_VINEGAR0011_png.rf.95d2b75b3de8139f0c441bececcf2914.jpg"
+    ]
+  },
+  "failure_analysis": {
+    "cause_counts": {
+      "Occlusion and clutter": 127,
+      "Lighting (shadows/glare)": 76,
+      "Viewpoint and scale": 62,
+      "Look-alike classes": 13,
+      "Image quality (blur/low-res)": 89,
+      "Label errors / domain gap": 25
+    },
+    "total_attributed_failures": 392,
+    "gallery_cases": [
+      {
+        "id": "F01",
+        "cause": "Occlusion and clutter",
+        "condition": "cluttered_shelf",
+        "filename": "rf_raw_roboflow_fridge_0084_DSC_6041_JPG_jpg.rf.1ce4bedb0b869514b79295b6643d0bc5.jpg",
+        "expected": "fresh_produce, eggs, milk_dairy, milk_dairy, fresh_produce, fresh_produce, fresh_produce, fresh_produce, fresh_produce",
+        "got": "eggs, fresh_produce, fresh_produce, fresh_produce, milk_dairy, fresh_produce, fresh_produce, milk_dairy",
+        "tile_path": "docs/milestone3\\failures\\F01_rf_raw_roboflow_fridge_0084_DSC_6041_JPG_jpg.rf.1ce4bedb0b869514b79295b6643d0bc5.jpg"
+      },
+      {
+        "id": "F02",
+        "cause": "Occlusion and clutter",
+        "condition": "cluttered_shelf",
+        "filename": "rf_raw_roboflow_fridge_0081_DSC_5985_JPG_jpg.rf.0ce1fa60e058b677569d8c7807391615.jpg",
+        "expected": "fresh_produce, fresh_produce, fresh_produce, fresh_produce, eggs, fresh_produce",
+        "got": "fresh_produce, fresh_produce, fresh_produce, fresh_produce, eggs, milk_dairy",
+        "tile_path": "docs/milestone3\\failures\\F02_rf_raw_roboflow_fridge_0081_DSC_5985_JPG_jpg.rf.0ce1fa60e058b677569d8c7807391615.jpg"
+      },
+      {
+        "id": "F03",
+        "cause": "Occlusion and clutter",
+        "condition": "occluded_20_50pct",
+        "filename": "rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg",
+        "expected": "cereal_grains, cereal_grains",
+        "got": "cereal_grains",
+        "tile_path": "docs/milestone3\\failures\\F03_rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg"
+      },
+      {
+        "id": "F04",
+        "cause": "Lighting (shadows/glare)",
+        "condition": "shadowed_sub100lux",
+        "filename": "rf_raw_rf_frieburg_0001_CEREAL0020_png.rf.eeffd840f12a35d0b59d41694488ea61.jpg",
+        "expected": "cereal_grains, cereal_grains",
+        "got": "coffee_condiment",
+        "tile_path": "docs/milestone3\\failures\\F04_rf_raw_rf_frieburg_0001_CEREAL0020_png.rf.eeffd840f12a35d0b59d41694488ea61.jpg"
+      },
+      {
+        "id": "F05",
+        "cause": "Lighting (shadows/glare)",
+        "condition": "shadowed_sub100lux",
+        "filename": "rf_raw_rf_frieburg_0003_CEREAL0041_png.rf.afe5efa8f93f9b4df8100e8c1db295a7.jpg",
+        "expected": "cereal_grains, cereal_grains",
+        "got": "coffee_condiment",
+        "tile_path": "docs/milestone3\\failures\\F05_rf_raw_rf_frieburg_0003_CEREAL0041_png.rf.afe5efa8f93f9b4df8100e8c1db295a7.jpg"
+      },
+      {
+        "id": "F06",
+        "cause": "Lighting (shadows/glare)",
+        "condition": "shadowed_sub100lux",
+        "filename": "rf_raw_rf_frieburg_0004_CEREAL0045_png.rf.a1392188acb57a43ecdd3108e33a5e69.jpg",
+        "expected": "cereal_grains",
+        "got": "none",
+        "tile_path": "docs/milestone3\\failures\\F06_rf_raw_rf_frieburg_0004_CEREAL0045_png.rf.a1392188acb57a43ecdd3108e33a5e69.jpg"
+      },
+      {
+        "id": "F07",
+        "cause": "Look-alike classes",
+        "condition": "normal",
+        "filename": "rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg",
+        "expected": "cereal_grains, cereal_grains",
+        "got": "cereal_grains, coffee_condiment, cereal_grains",
+        "tile_path": "docs/milestone3\\failures\\F07_rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg"
+      },
+      {
+        "id": "F08",
+        "cause": "Look-alike classes",
+        "condition": "normal",
+        "filename": "rf_raw_rf_frieburg_0001_CEREAL0020_png.rf.eeffd840f12a35d0b59d41694488ea61.jpg",
+        "expected": "cereal_grains, cereal_grains",
+        "got": "milk_dairy, pasta_noodles",
+        "tile_path": "docs/milestone3\\failures\\F08_rf_raw_rf_frieburg_0001_CEREAL0020_png.rf.eeffd840f12a35d0b59d41694488ea61.jpg"
+      },
+      {
+        "id": "F09",
+        "cause": "Viewpoint and scale",
+        "condition": "angled_perspective",
+        "filename": "rf_raw_rf_frieburg_0002_CEREAL0037_png.rf.35f1a7b364114f50166d8998639b4f1c.jpg",
+        "expected": "cereal_grains",
+        "got": "none",
+        "tile_path": "docs/milestone3\\failures\\F09_rf_raw_rf_frieburg_0002_CEREAL0037_png.rf.35f1a7b364114f50166d8998639b4f1c.jpg"
+      },
+      {
+        "id": "F10",
+        "cause": "Viewpoint and scale",
+        "condition": "normal",
+        "filename": "rf_raw_rf_frieburg_0007_COFFEE0012_png.rf.0c0db736335523a7f9b712b9837cec7f.jpg",
+        "expected": "coffee_condiment, coffee_condiment",
+        "got": "none",
+        "tile_path": "docs/milestone3\\failures\\F10_rf_raw_rf_frieburg_0007_COFFEE0012_png.rf.0c0db736335523a7f9b712b9837cec7f.jpg"
+      },
+      {
+        "id": "F11",
+        "cause": "Image quality (blur/low-res)",
+        "condition": "motion_blur",
+        "filename": "rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg",
+        "expected": "cereal_grains, cereal_grains",
+        "got": "cereal_grains",
+        "tile_path": "docs/milestone3\\failures\\F11_rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg"
+      },
+      {
+        "id": "F12",
+        "cause": "Label errors / domain gap",
+        "condition": "normal",
+        "filename": "rf_raw_rf_frieburg_0002_CEREAL0037_png.rf.35f1a7b364114f50166d8998639b4f1c.jpg",
+        "expected": "cereal_grains",
+        "got": "cereal_grains, cereal_grains",
+        "tile_path": "docs/milestone3\\failures\\F12_rf_raw_rf_frieburg_0002_CEREAL0037_png.rf.35f1a7b364114f50166d8998639b4f1c.jpg"
+      }
+    ],
+    "failure_gallery_png": "docs/milestone3\\failure_gallery.png"
+  },
+  "test_log_summary": {
+    "total_cases": 24,
+    "passed": 10,
+    "failed": 14
+  },
+  "artifacts": {
+    "preliminary_results_csv": "docs/milestone3\\preliminary_results.csv",
+    "preliminary_comparison_png": "docs/milestone3\\preliminary_results_comparison.png",
+    "classification_report_txt": "docs/milestone3\\classification_report.txt",
+    "confusion_matrix_png": "docs/milestone3\\test_confusion_matrix.png",
+    "test_log_csv": "docs/milestone3\\test_log.csv",
+    "failure_gallery_png": "docs/milestone3\\failure_gallery.png",
+    "pipeline_stages_strip_png": "docs/milestone3\\pipeline_stages_strip.png"
+  }
+}

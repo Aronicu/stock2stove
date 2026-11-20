@@ -1,0 +1,33 @@
+=== 8-Class Classification Report on Spatially Matched Test Boxes (IoU >= 0.45) ===
+                  precision    recall  f1-score   support
+
+   pasta_noodles      1.000     0.762     0.865        21
+   canned_tomato      1.000     0.810     0.895        21
+canned_tuna_meat      1.000     1.000     1.000        14
+   cereal_grains      0.650     0.867     0.743        15
+coffee_condiment      0.846     0.957     0.898        23
+      milk_dairy      0.973     0.973     0.973        37
+            eggs      1.000     1.000     1.000         4
+   fresh_produce      0.989     1.000     0.995        92
+
+        accuracy                          0.943       227
+       macro avg      0.932     0.921     0.921       227
+    weighted avg      0.953     0.943     0.944       227
+
+=== Full Detection + Background Classification Report (including Missed FN & False Positive FP) ===
+                  precision    recall  f1-score   support
+
+   pasta_noodles      0.889     0.615     0.727        26
+   canned_tomato      0.895     0.810     0.850        21
+canned_tuna_meat      0.824     0.875     0.848        16
+   cereal_grains      0.565     0.684     0.619        19
+coffee_condiment      0.710     0.688     0.698        32
+      milk_dairy      0.837     0.900     0.867        40
+            eggs      1.000     0.800     0.889         5
+   fresh_produce      0.958     0.902     0.929       102
+       missed_bg      0.000     0.000     0.000         0
+           bg_fp      0.000     0.000     0.000        24
+
+        accuracy                          0.751       285
+       macro avg      0.668     0.627     0.643       285
+    weighted avg      0.789     0.751     0.766       285

@@ -91,7 +91,8 @@ data class DetectionItem(
     val confidence: Float = 0.0f,
     val bbox_norm: List<Float> = emptyList(),
     val polygon_norm: List<List<Float>>? = null,
-    val temporally_confirmed: Boolean = false
+    val temporally_confirmed: Boolean = false,
+    val crop_jpeg_b64: String? = null
 )
 
 @Serializable
@@ -99,7 +100,8 @@ data class ConfirmedItem(
     val class_id: String = "",
     val display_name: String = "",
     val count: Int = 1,
-    val max_conf: Float = 0.0f
+    val max_conf: Float = 0.0f,
+    val crop_jpeg_b64: String? = null
 )
 
 @Serializable
@@ -114,7 +116,8 @@ data class InventoryItemRequest(
     val class_id: String = "",
     val display_name: String = "",
     val count: Int = 1,
-    val storage_zone: String = "shelf"
+    val storage_zone: String = "shelf",
+    val crop_jpeg_b64: String? = null
 )
 
 @Serializable

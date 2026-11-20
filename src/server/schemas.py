@@ -86,6 +86,7 @@ def format_detection_item(det):
         "bbox_norm": bbox_norm,
         "polygon_norm": polygon_norm,
         "temporally_confirmed": bool(det.get("temporally_confirmed", False)),
+        "crop_jpeg_b64": det.get("crop_jpeg_b64"),
     }
 
 
@@ -100,6 +101,7 @@ def format_confirmed_inventory_item(item):
         "display_name": str(disp),
         "count": count,
         "max_conf": max_conf,
+        "crop_jpeg_b64": item.get("crop_jpeg_b64"),
     }
 
 

@@ -1,5 +1,6 @@
 package com.kaggleing.stock2stove.ui.inventory
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,12 +48,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kaggleing.stock2stove.data.model.ConfirmedItem
 import com.kaggleing.stock2stove.data.model.InventoryItemRequest
 import com.kaggleing.stock2stove.data.model.UnifiedItemClass
+import com.kaggleing.stock2stove.ui.scanner.CameraFrameProcessor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -181,6 +185,9 @@ fun InventorySheetContent(
             ) {
                 for (item in items) {
                     val unified = UnifiedItemClass.normalize(item.class_id)
+                    val cropBitmap = remember(item.crop_jpeg_b64) {
+                        CameraFrameProcessor.decodeBase64Bitmap(item.crop_jpeg_b64)
+                    }
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -196,6 +203,17 @@ fun InventorySheetContent(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (cropBitmap != null) {
+                                Image(
+                                    bitmap = cropBitmap.asImageBitmap(),
+                                    contentDescription = item.display_name.ifBlank { unified.displayName },
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                            }
                             Column(
                                 modifier = Modifier.weight(1f)
                             ) {

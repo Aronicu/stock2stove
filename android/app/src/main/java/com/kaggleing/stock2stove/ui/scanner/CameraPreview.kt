@@ -3,6 +3,7 @@ package com.kaggleing.stock2stove.ui.scanner
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,6 +35,7 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.roundToInt
 
 object CameraFrameProcessor {
     fun processBitmapToJpeg(
@@ -63,6 +65,90 @@ object CameraFrameProcessor {
 
     fun encodeBase64(bytes: ByteArray): String {
         return Base64.getEncoder().encodeToString(bytes)
+    }
+
+    fun cropJpegBase64(
+        jpegBytes: ByteArray,
+        bboxNorm: List<Float>,
+        maxSide: Int = 128,
+        quality: Int = 78
+    ): String? {
+        if (jpegBytes.isEmpty() || bboxNorm.size < 4) {
+            return null
+        }
+        return try {
+            val fullBitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size) ?: return null
+            val w = fullBitmap.width
+            val h = fullBitmap.height
+            if (w <= 0 || h <= 0) {
+                return null
+            }
+
+            val rawX1 = bboxNorm[0].coerceIn(0f, 1f)
+            val rawY1 = bboxNorm[1].coerceIn(0f, 1f)
+            val rawX2 = bboxNorm[2].coerceIn(0f, 1f)
+            val rawY2 = bboxNorm[3].coerceIn(0f, 1f)
+
+            val x1 = minOf(rawX1, rawX2)
+            val y1 = minOf(rawY1, rawY2)
+            val x2 = maxOf(rawX1, rawX2)
+            val y2 = maxOf(rawY1, rawY2)
+
+            val px1 = (x1 * w).toInt().coerceIn(0, w - 1)
+            val py1 = (y1 * h).toInt().coerceIn(0, h - 1)
+            val px2 = (x2 * w).roundToInt().coerceIn(px1 + 1, w)
+            val py2 = (y2 * h).roundToInt().coerceIn(py1 + 1, h)
+
+            val cw = px2 - px1
+            val ch = py2 - py1
+            if (cw <= 0 || ch <= 0) {
+                return null
+            }
+
+            val cropped = Bitmap.createBitmap(fullBitmap, px1, py1, cw, ch)
+            val scaled = if (maxSide > 0 && maxOf(cw, ch) > maxSide) {
+                val scale = maxSide.toFloat() / maxOf(cw, ch).toFloat()
+                val nw = (cw * scale).roundToInt().coerceAtLeast(1)
+                val nh = (ch * scale).roundToInt().coerceAtLeast(1)
+                Bitmap.createScaledBitmap(cropped, nw, nh, true)
+            } else {
+                cropped
+            }
+
+            val outputStream = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
+            val outBytes = outputStream.toByteArray()
+            if (outBytes.isEmpty()) {
+                null
+            } else {
+                encodeBase64(outBytes)
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun decodeBase64Bitmap(b64: String?): Bitmap? {
+        if (b64.isNullOrBlank()) {
+            return null
+        }
+        return try {
+            var cleaned = b64.trim()
+            if (cleaned.startsWith("data:")) {
+                val commaIdx = cleaned.indexOf(',')
+                if (commaIdx >= 0) {
+                    cleaned = cleaned.substring(commaIdx + 1)
+                }
+            }
+            val bytes = Base64.getDecoder().decode(cleaned)
+            if (bytes.isEmpty()) {
+                null
+            } else {
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     fun shouldCaptureFrame(currentTimeMs: Long, lastFrameTimeMs: Long, targetFps: Int): Boolean {

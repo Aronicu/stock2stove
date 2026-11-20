@@ -17,6 +17,7 @@ from src.cv.gemini_detector import (
     run_hybrid_gemini_detection,
 )
 from src.cv.preprocess import (
+    crop_detection_base64_jpeg,
     decode_base64_image,
     decode_image_bytes,
     encode_image_base64_jpeg,
@@ -95,6 +96,13 @@ def execute_single_frame_pipeline(
             mode=mode,
             conf_threshold=float(conf_threshold),
         )
+
+    for det in raw_dets:
+        if not det.get("crop_jpeg_b64"):
+            det["crop_jpeg_b64"] = crop_detection_base64_jpeg(
+                letterboxed,
+                det.get("bbox_norm"),
+            )
 
     if session_id is not None:
         min_hits_override = 1 if mode == "gemini_vision" else None

@@ -312,6 +312,20 @@ def evaluate_predictions_against_gt(pred_boxes, gt_boxes, iou_threshold=0.50):
     return int(tp), int(fp), int(fn), average_precisions_per_class
 
 
+def compute_map50_95(pred_boxes, gt_boxes):
+    thresholds = [0.50 + 0.05 * i for i in range(10)]
+    ap_means = []
+    for thr in thresholds:
+        _, _, _, ap_map = evaluate_predictions_against_gt(pred_boxes, gt_boxes, iou_threshold=thr)
+        if ap_map:
+            ap_means.append(sum(ap_map.values()) / float(len(ap_map)))
+        else:
+            ap_means.append(0.0)
+    if not ap_means:
+        return 0.0
+    return round(sum(ap_means) / float(len(ap_means)), 4)
+
+
 def compute_per_class_pr(pred_boxes, gt_boxes, iou_threshold=0.50):
     gt_buckets = {}
     gt_counts_by_class = {}
@@ -576,6 +590,21 @@ def run_benchmark_suite(
             all_preds = []
             latencies_ms = []
 
+            for warm_idx in range(min(3, len(images_list))):
+                _, warm_img = images_list[warm_idx]
+                if detector_name in ("orb_baseline", "sift_baseline"):
+                    run_baseline_detection(
+                        warm_img,
+                        mode=detector_name,
+                        conf_threshold=float(conf_threshold),
+                    )
+                else:
+                    run_yolo_detection(
+                        warm_img,
+                        mode="yolov8",
+                        conf_threshold=float(conf_threshold),
+                    )
+
             for filename, img_bgr in images_list:
                 t_start = time.perf_counter()
                 if detector_name in ("orb_baseline", "sift_baseline"):
@@ -606,6 +635,7 @@ def run_benchmark_suite(
                 all_gts,
                 iou_threshold=float(iou_threshold),
             )
+            map50_95 = compute_map50_95(all_preds, all_gts)
             precision_per_class, recall_per_class = compute_per_class_pr(
                 all_preds,
                 all_gts,
@@ -634,6 +664,7 @@ def run_benchmark_suite(
                 "fp": int(fp),
                 "fn": int(fn),
                 "mAP50": round(map50, 4),
+                "mAP50_95": round(map50_95, 4),
                 "precision": round(precision, 4),
                 "recall": round(recall, 4),
                 "f1_score": round(f1_score, 4),
@@ -663,6 +694,7 @@ def run_benchmark_suite(
         "fp",
         "fn",
         "mAP50",
+        "mAP50_95",
         "precision",
         "recall",
         "f1_score",

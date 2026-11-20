@@ -203,3 +203,62 @@ def encode_image_base64_jpeg(bgr_image, quality=85):
     if not ok:
         raise ValueError("Failed to encode image as JPEG.")
     return base64.b64encode(buf.tobytes()).decode("ascii")
+
+
+def crop_detection_base64_jpeg(bgr_image, bbox_norm, max_side=128, quality=78):
+    if bgr_image is None or bgr_image.size == 0:
+        return None
+    if not bbox_norm or len(bbox_norm) < 4:
+        return None
+
+    h, w = bgr_image.shape[:2]
+    if h <= 0 or w <= 0:
+        return None
+
+    try:
+        x1_f = float(bbox_norm[0])
+        y1_f = float(bbox_norm[1])
+        x2_f = float(bbox_norm[2])
+        y2_f = float(bbox_norm[3])
+    except (TypeError, ValueError):
+        return None
+
+    x1_n = max(0.0, min(1.0, x1_f))
+    y1_n = max(0.0, min(1.0, y1_f))
+    x2_n = max(0.0, min(1.0, x2_f))
+    y2_n = max(0.0, min(1.0, y2_f))
+
+    if x2_n < x1_n:
+        temp_x = x1_n
+        x1_n = x2_n
+        x2_n = temp_x
+    if y2_n < y1_n:
+        temp_y = y1_n
+        y1_n = y2_n
+        y2_n = temp_y
+
+    px1 = max(0, min(w - 1, int(x1_n * float(w))))
+    py1 = max(0, min(h - 1, int(y1_n * float(h))))
+    px2 = max(px1 + 1, min(w, int(round(x2_n * float(w)))))
+    py2 = max(py1 + 1, min(h, int(round(y2_n * float(h)))))
+
+    crop = bgr_image[py1:py2, px1:px2]
+    if crop is None or crop.size == 0:
+        return None
+
+    ch, cw = crop.shape[:2]
+    if ch <= 0 or cw <= 0:
+        return None
+
+    if max_side is not None and int(max_side) > 0:
+        largest = ch if ch > cw else cw
+        if largest > int(max_side):
+            scale = float(max_side) / float(largest)
+            new_w = max(1, int(round(float(cw) * scale)))
+            new_h = max(1, int(round(float(ch) * scale)))
+            crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+    try:
+        return encode_image_base64_jpeg(crop, quality=quality)
+    except Exception:
+        return None
