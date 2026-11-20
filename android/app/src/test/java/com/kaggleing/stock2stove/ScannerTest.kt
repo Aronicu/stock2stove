@@ -257,6 +257,21 @@ class ScannerTest {
     }
 
     @Test
+    fun testViewportCropAndAspectPreservingSize() {
+        val cropRect = CameraFrameProcessor.computeViewportCropRect(480, 640, 720, 1612)
+        assertEquals(4, cropRect.size)
+        assertEquals(97, cropRect[0])
+        assertEquals(0, cropRect[1])
+        assertEquals(286, cropRect[2])
+        assertEquals(640, cropRect[3])
+
+        val outSize = CameraFrameProcessor.computeAspectPreservingSize(286, 640, 640, 640)
+        assertEquals(2, outSize.size)
+        assertEquals(286, outSize[0])
+        assertEquals(640, outSize[1])
+    }
+
+    @Test
     fun testScannerViewModelStateTransitions() {
         val testDispatcher = StandardTestDispatcher()
         val viewModel = ScannerViewModel(coroutineDispatcher = testDispatcher)

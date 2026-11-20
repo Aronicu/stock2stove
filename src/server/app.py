@@ -69,12 +69,12 @@ def execute_single_frame_pipeline(
         enable_clahe=bool(enable_clahe),
         target_size=TARGET_IMG_SIZE,
     )
-    letterboxed = prep["letterboxed_bgr"]
+    resized_bgr = prep.get("resized_bgr", prep["enhanced_bgr"])
     diagnostics = dict(prep["diagnostics"])
 
     if mode in ("orb_baseline", "sift_baseline"):
         raw_dets, extra_diag = run_baseline_detection(
-            letterboxed,
+            resized_bgr,
             mode=mode,
             conf_threshold=float(conf_threshold),
         )
@@ -82,17 +82,17 @@ def execute_single_frame_pipeline(
         diagnostics["ransac_inliers"] = int(extra_diag.get("ransac_inliers", 0))
     elif mode == "gemini_vision":
         raw_dets, _ = run_gemini_detection(
-            letterboxed,
+            resized_bgr,
             conf_threshold=float(conf_threshold),
         )
     elif mode == "hybrid_gemini":
         raw_dets, _ = run_hybrid_gemini_detection(
-            letterboxed,
+            resized_bgr,
             conf_threshold=float(conf_threshold),
         )
     else:
         raw_dets, _ = run_yolo_detection(
-            letterboxed,
+            resized_bgr,
             mode=mode,
             conf_threshold=float(conf_threshold),
         )
@@ -100,7 +100,7 @@ def execute_single_frame_pipeline(
     for det in raw_dets:
         if not det.get("crop_jpeg_b64"):
             det["crop_jpeg_b64"] = crop_detection_base64_jpeg(
-                letterboxed,
+                resized_bgr,
                 det.get("bbox_norm"),
             )
 

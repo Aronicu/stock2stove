@@ -10,6 +10,7 @@ from src.cv.preprocess import (
     letterbox_image,
     preprocess_frame,
     unletterbox_bbox_norm,
+    unletterbox_detections,
 )
 from src.cv.gemini_detector import (
     parse_gemini_boxes,
@@ -47,9 +48,26 @@ def test_task_1_1_preprocess():
 
     prep_out = preprocess_frame(sample, enable_clahe=True, target_size=640)
     assert prep_out["letterboxed_bgr"].shape == (640, 640, 3)
+    assert "resized_bgr" in prep_out
+    assert prep_out["resized_bgr"].shape == (prep_out["meta"]["new_h"], prep_out["meta"]["new_w"], 3)
     assert prep_out["diagnostics"]["clahe_applied"] is True
     assert prep_out["diagnostics"]["edge_density_pct"] > 0.0
     assert prep_out["diagnostics"]["orb_keypoints"] > 0
+
+    mapped_dets = unletterbox_detections(
+        [
+            {
+                "class_id": "pasta_noodles",
+                "bbox_norm": [0.25, 0.25, 0.75, 0.75],
+                "polygon_norm": [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]],
+            }
+        ],
+        meta,
+    )
+    assert len(mapped_dets) == 1
+    assert mapped_dets[0]["bbox_norm"] == unletterbox_bbox_norm([160.0, 160.0, 480.0, 480.0], meta)
+    assert mapped_dets[0]["polygon_norm"] is not None
+    assert len(mapped_dets[0]["polygon_norm"]) == 4
 
 
 def test_task_1_2_baseline_detector():

@@ -133,6 +133,41 @@ def unletterbox_polygon_norm(polygon_pts_px, meta):
     return normalized_pts
 
 
+def unletterbox_detections(detections, meta):
+    if not detections or not meta:
+        return list(detections) if detections else []
+
+    target_size = float(meta.get("target_size", 640))
+    if target_size <= 0.0:
+        target_size = 640.0
+
+    mapped = []
+    for det in detections:
+        copied = dict(det)
+        bbox = det.get("bbox_norm")
+        if bbox and len(bbox) >= 4:
+            bbox_px = [
+                float(bbox[0]) * target_size,
+                float(bbox[1]) * target_size,
+                float(bbox[2]) * target_size,
+                float(bbox[3]) * target_size,
+            ]
+            copied["bbox_norm"] = unletterbox_bbox_norm(bbox_px, meta)
+
+        poly = det.get("polygon_norm")
+        if isinstance(poly, list) and len(poly) > 0:
+            poly_px = []
+            for pt in poly:
+                if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                    poly_px.append([float(pt[0]) * target_size, float(pt[1]) * target_size])
+            if len(poly_px) > 0:
+                copied["polygon_norm"] = unletterbox_polygon_norm(poly_px, meta)
+
+        mapped.append(copied)
+
+    return mapped
+
+
 def compute_frame_diagnostics(bgr_image, clahe_applied=True, orb_nfeatures=500):
     h, w = bgr_image.shape[:2]
     gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
@@ -166,10 +201,18 @@ def preprocess_frame(bgr_image, enable_clahe=True, target_size=640, clip_limit=2
         enhanced_bgr = bgr_image.copy()
 
     letterboxed_bgr, meta = letterbox_image(enhanced_bgr, target_size=target_size)
+    orig_h, orig_w = enhanced_bgr.shape[:2]
+    new_w = int(meta["new_w"])
+    new_h = int(meta["new_h"])
+    if new_w != orig_w or new_h != orig_h:
+        resized_bgr = cv2.resize(enhanced_bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    else:
+        resized_bgr = enhanced_bgr.copy()
     diagnostics = compute_frame_diagnostics(enhanced_bgr, clahe_applied=enable_clahe)
 
     return {
         "enhanced_bgr": enhanced_bgr,
+        "resized_bgr": resized_bgr,
         "letterboxed_bgr": letterboxed_bgr,
         "meta": meta,
         "diagnostics": diagnostics,

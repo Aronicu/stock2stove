@@ -10,6 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
@@ -34,16 +36,68 @@ import androidx.core.content.ContextCompat
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 object CameraFrameProcessor {
+    fun computeViewportCropRect(
+        srcWidth: Int,
+        srcHeight: Int,
+        viewportWidth: Int,
+        viewportHeight: Int
+    ): IntArray {
+        if (srcWidth <= 0 || srcHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) {
+            return intArrayOf(0, 0, srcWidth.coerceAtLeast(0), srcHeight.coerceAtLeast(0))
+        }
+
+        val srcAspect = srcWidth.toFloat() / srcHeight.toFloat()
+        val viewportAspect = viewportWidth.toFloat() / viewportHeight.toFloat()
+        if (abs(srcAspect - viewportAspect) < 0.001f) {
+            return intArrayOf(0, 0, srcWidth, srcHeight)
+        }
+
+        if (srcAspect > viewportAspect) {
+            val cropW = (srcHeight.toFloat() * viewportAspect).roundToInt().coerceIn(1, srcWidth)
+            val cropX = ((srcWidth - cropW) / 2).coerceIn(0, srcWidth - cropW)
+            return intArrayOf(cropX, 0, cropW, srcHeight)
+        }
+
+        val cropH = (srcWidth.toFloat() / viewportAspect).roundToInt().coerceIn(1, srcHeight)
+        val cropY = ((srcHeight - cropH) / 2).coerceIn(0, srcHeight - cropH)
+        return intArrayOf(0, cropY, srcWidth, cropH)
+    }
+
+    fun computeAspectPreservingSize(
+        srcWidth: Int,
+        srcHeight: Int,
+        maxWidth: Int,
+        maxHeight: Int
+    ): IntArray {
+        if (srcWidth <= 0 || srcHeight <= 0) {
+            return intArrayOf(maxWidth.coerceAtLeast(1), maxHeight.coerceAtLeast(1))
+        }
+        if (maxWidth <= 0 || maxHeight <= 0) {
+            return intArrayOf(srcWidth, srcHeight)
+        }
+
+        val scaleW = maxWidth.toFloat() / srcWidth.toFloat()
+        val scaleH = maxHeight.toFloat() / srcHeight.toFloat()
+        val scale = if (scaleW < scaleH) scaleW else scaleH
+        val outW = (srcWidth.toFloat() * scale).roundToInt().coerceIn(1, maxWidth)
+        val outH = (srcHeight.toFloat() * scale).roundToInt().coerceIn(1, maxHeight)
+        return intArrayOf(outW, outH)
+    }
+
     fun processBitmapToJpeg(
         bitmap: Bitmap,
         rotationDegrees: Int = 0,
         targetWidth: Int = 640,
         targetHeight: Int = 640,
-        quality: Int = 80
+        quality: Int = 80,
+        viewportWidth: Int = 0,
+        viewportHeight: Int = 0
     ): ByteArray {
         val rotated = if (rotationDegrees != 0) {
             val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
@@ -52,10 +106,34 @@ object CameraFrameProcessor {
             bitmap
         }
 
-        val scaled = if (rotated.width != targetWidth || rotated.height != targetHeight) {
-            Bitmap.createScaledBitmap(rotated, targetWidth, targetHeight, true)
+        val cropped = if (viewportWidth > 0 && viewportHeight > 0) {
+            val rect = computeViewportCropRect(rotated.width, rotated.height, viewportWidth, viewportHeight)
+            val cx = rect[0]
+            val cy = rect[1]
+            val cw = rect[2]
+            val ch = rect[3]
+            if (cx > 0 || cy > 0 || cw != rotated.width || ch != rotated.height) {
+                Bitmap.createBitmap(rotated, cx, cy, cw, ch)
+            } else {
+                rotated
+            }
         } else {
             rotated
+        }
+
+        val scaled = if (viewportWidth > 0 && viewportHeight > 0) {
+            val outSize = computeAspectPreservingSize(cropped.width, cropped.height, targetWidth, targetHeight)
+            val outW = outSize[0]
+            val outH = outSize[1]
+            if (cropped.width != outW || cropped.height != outH) {
+                Bitmap.createScaledBitmap(cropped, outW, outH, true)
+            } else {
+                cropped
+            }
+        } else if (cropped.width != targetWidth || cropped.height != targetHeight) {
+            Bitmap.createScaledBitmap(cropped, targetWidth, targetHeight, true)
+        } else {
+            cropped
         }
 
         val outputStream = ByteArrayOutputStream()
@@ -168,6 +246,9 @@ fun CameraPreview(
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val lastFrameTime = remember { AtomicLong(0L) }
+    val displayMetrics = context.resources.displayMetrics
+    val viewportWidthPx = remember { AtomicInteger(displayMetrics.widthPixels) }
+    val viewportHeightPx = remember { AtomicInteger(displayMetrics.heightPixels) }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -210,15 +291,31 @@ fun CameraPreview(
         factory = { ctx ->
             val previewView = PreviewView(ctx).apply {
                 implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                scaleType = PreviewView.ScaleType.FILL_CENTER
+                addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+                    val w = right - left
+                    val h = bottom - top
+                    if (w > 0 && h > 0) {
+                        viewportWidthPx.set(w)
+                        viewportHeightPx.set(h)
+                    }
+                }
             }
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
-                val preview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
+                val resolutionSelector = ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                    .build()
+                val preview = Preview.Builder()
+                    .setResolutionSelector(resolutionSelector)
+                    .build()
+                    .also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
 
                 val imageAnalysis = ImageAnalysis.Builder()
+                    .setResolutionSelector(resolutionSelector)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .build()
@@ -234,7 +331,9 @@ fun CameraPreview(
                                 bitmap = bitmap,
                                 rotationDegrees = imageProxy.imageInfo.rotationDegrees,
                                 targetWidth = 640,
-                                targetHeight = 640
+                                targetHeight = 640,
+                                viewportWidth = viewportWidthPx.get(),
+                                viewportHeight = viewportHeightPx.get()
                             )
                             val b64 = CameraFrameProcessor.encodeBase64(jpegBytes)
                             onFrameCaptured(jpegBytes, b64)
