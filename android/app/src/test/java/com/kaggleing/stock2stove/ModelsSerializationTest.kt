@@ -203,6 +203,19 @@ class ModelsSerializationTest {
         assertEquals("http://127.0.0.1:8000/api/v1/health", preset.getHealthUrl())
         assertEquals("http://127.0.0.1:8000/api/v1/recipes/generate", preset.getRecipeUrl())
         assertTrue(preset.isDefault)
+
+        val tunnelPreset = NetworkPreset(
+            "https_tunnel",
+            "HTTPS Tunnel",
+            "kitchen.trycloudflare.com",
+            443,
+            false,
+            "https"
+        )
+        assertEquals("https://kitchen.trycloudflare.com", tunnelPreset.getHttpBaseUrl())
+        assertEquals("wss://kitchen.trycloudflare.com/ws/scan", tunnelPreset.getWsScanUrl())
+        assertEquals("https://kitchen.trycloudflare.com/api/v1/health", tunnelPreset.getHealthUrl())
+        assertEquals("https://kitchen.trycloudflare.com/api/v1/recipes/generate", tunnelPreset.getRecipeUrl())
     }
 
     @Test

@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 $env:PYTHONPATH = $ProjectRoot
+$env:FORWARDED_ALLOW_IPS = "*"
 
 if (-not $SkipAdbReverse) {
     $AdbPath = Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
@@ -22,4 +23,4 @@ if (-not $SkipAdbReverse) {
 }
 
 Write-Host "[SERVER] Starting Stock-to-Stove FastAPI Server on http://${BindHost}:${Port}"
-python -m uvicorn src.server.app:app --host $BindHost --port $Port
+python -m uvicorn src.server.app:app --host $BindHost --port $Port --proxy-headers

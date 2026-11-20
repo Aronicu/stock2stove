@@ -89,12 +89,12 @@ fun Stock2StoveApp(
             )
         ) { backStackEntry ->
             val serverUrlStr = backStackEntry.arguments?.getString("serverUrl") ?: "http://192.168.1.100:8000"
-            val decodedUrl = Uri.decode(serverUrlStr)
+            val decodedUrl = Uri.decode(serverUrlStr).trim().trimEnd('/')
 
-            val wsUrl = if (decodedUrl.startsWith("http://")) {
-                decodedUrl.replace("http://", "ws://") + "/ws/scan"
-            } else if (decodedUrl.startsWith("https://")) {
-                decodedUrl.replace("https://", "wss://") + "/ws/scan"
+            val wsUrl = if (decodedUrl.startsWith("https://", ignoreCase = true)) {
+                "wss://" + decodedUrl.substring(8) + "/ws/scan"
+            } else if (decodedUrl.startsWith("http://", ignoreCase = true)) {
+                "ws://" + decodedUrl.substring(7) + "/ws/scan"
             } else {
                 "ws://$decodedUrl/ws/scan"
             }

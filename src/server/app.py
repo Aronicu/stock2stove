@@ -916,4 +916,11 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("src.server.app:app", host=HOST, port=PORT, reload=False)
+    uvicorn.run(
+        "src.server.app:app",
+        host=HOST,
+        port=PORT,
+        reload=False,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )

@@ -156,10 +156,21 @@ data class NetworkPreset(
     val label: String = "",
     val host: String = "127.0.0.1",
     val port: Int = 8000,
-    val isDefault: Boolean = false
+    val isDefault: Boolean = false,
+    val scheme: String = "http"
 ) {
-    fun getHttpBaseUrl(): String = "http://$host:$port"
-    fun getWsScanUrl(): String = "ws://$host:$port/ws/scan"
-    fun getHealthUrl(): String = "http://$host:$port/api/v1/health"
-    fun getRecipeUrl(): String = "http://$host:$port/api/v1/recipes/generate"
+    fun getHttpBaseUrl(): String {
+        val cleanScheme = if (scheme == "https") "https" else "http"
+        val isDefaultPort = (cleanScheme == "https" && port == 443) || (cleanScheme == "http" && port == 80)
+        return if (isDefaultPort) "$cleanScheme://$host" else "$cleanScheme://$host:$port"
+    }
+
+    fun getWsScanUrl(): String {
+        val wsScheme = if (scheme == "https") "wss" else "ws"
+        val isDefaultPort = (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
+        return if (isDefaultPort) "$wsScheme://$host/ws/scan" else "$wsScheme://$host:$port/ws/scan"
+    }
+
+    fun getHealthUrl(): String = "${getHttpBaseUrl()}/api/v1/health"
+    fun getRecipeUrl(): String = "${getHttpBaseUrl()}/api/v1/recipes/generate"
 }

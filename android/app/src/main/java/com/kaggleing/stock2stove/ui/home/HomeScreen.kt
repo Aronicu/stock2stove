@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RestaurantMenu
@@ -82,6 +83,7 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
+    val presetScrollState = rememberScrollState()
     val basketScrollState = rememberScrollState()
     var showClearBasketDialog by remember { mutableStateOf(false) }
 
@@ -184,7 +186,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    WorkflowStepBadge(number = "1", label = "Server IP")
+                    WorkflowStepBadge(number = "1", label = "Server URL")
                     WorkflowStepDivider()
                     WorkflowStepBadge(number = "2", label = "Scan Food")
                     WorkflowStepDivider()
@@ -259,8 +261,8 @@ fun HomeScreen(
                         OutlinedTextField(
                             value = state.customHost,
                             onValueChange = { viewModel.setCustomHost(it) },
-                            label = { Text("Server IP Address") },
-                            placeholder = { Text("e.g. 192.168.1.100") },
+                            label = { Text("Server Host or Tunnel URL") },
+                            placeholder = { Text("e.g. abc.trycloudflare.com") },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Dns,
@@ -306,7 +308,7 @@ fun HomeScreen(
                             text = if (state.isSaved) {
                                 "Saved · ${state.activeBaseUrl}"
                             } else {
-                                "Enter server IP to save"
+                                "Enter server host or tunnel URL"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -316,9 +318,27 @@ fun HomeScreen(
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(presetScrollState),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        FilterChip(
+                            selected = state.selectedPresetId == "https_tunnel",
+                            onClick = { viewModel.selectPreset("https_tunnel") },
+                            label = { Text("HTTPS Tunnel") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
                         FilterChip(
                             selected = state.selectedPresetId == "custom_lan",
                             onClick = { viewModel.selectPreset("custom_lan") },
@@ -375,6 +395,27 @@ fun HomeScreen(
                                 Text("Test Connection")
                             }
                         }
+
+                        FilterChip(
+                            selected = state.scheme == "https",
+                            onClick = { viewModel.setUseHttps(state.scheme != "https") },
+                            label = { Text(if (state.scheme == "https") "HTTPS" else "HTTP") },
+                            leadingIcon = if (state.scheme == "https") {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        )
 
                         if (state.pingLatencyMs != null) {
                             Text(

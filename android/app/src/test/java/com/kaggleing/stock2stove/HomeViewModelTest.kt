@@ -195,4 +195,60 @@ class HomeViewModelTest {
         assertEquals("SocketTimeoutException", state.errorMessage)
         assertNotNull(state.pingLatencyMs)
     }
+
+    @Test
+    fun testHttpsCloudflareTunnelUrlParsingAndPersistence() {
+        val testDispatcher = StandardTestDispatcher()
+        val sharedStore = InMemoryServerConfigStore()
+        val firstVm = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = sharedStore
+        )
+
+        firstVm.setCustomHost("https://kitchen-demo.trycloudflare.com/")
+        val state = firstVm.uiState.value
+        assertEquals("https_tunnel", state.selectedPresetId)
+        assertEquals("https", state.scheme)
+        assertEquals("kitchen-demo.trycloudflare.com", state.customHost)
+        assertEquals(443, state.customPort)
+        assertEquals("443", state.portInput)
+        assertEquals("https://kitchen-demo.trycloudflare.com", state.activeBaseUrl)
+
+        val secondVm = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = sharedStore
+        )
+        val restored = secondVm.uiState.value
+        assertEquals("https", restored.scheme)
+        assertEquals("kitchen-demo.trycloudflare.com", restored.customHost)
+        assertEquals(443, restored.customPort)
+        assertEquals("https://kitchen-demo.trycloudflare.com", restored.activeBaseUrl)
+    }
+
+    @Test
+    fun testHttpsToggleAndTunnelDomainAutoDetection() {
+        val testDispatcher = StandardTestDispatcher()
+        val viewModel = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = InMemoryServerConfigStore()
+        )
+
+        viewModel.setCustomHost("my-stove.trycloudflare.com")
+        assertEquals("https", viewModel.uiState.value.scheme)
+        assertEquals(443, viewModel.uiState.value.customPort)
+        assertEquals("https://my-stove.trycloudflare.com", viewModel.uiState.value.activeBaseUrl)
+
+        viewModel.setUseHttps(false)
+        assertEquals("http", viewModel.uiState.value.scheme)
+        assertEquals(8000, viewModel.uiState.value.customPort)
+        assertEquals("http://my-stove.trycloudflare.com:8000", viewModel.uiState.value.activeBaseUrl)
+
+        viewModel.setUseHttps(true)
+        assertEquals("https", viewModel.uiState.value.scheme)
+        assertEquals(443, viewModel.uiState.value.customPort)
+        assertEquals("https://my-stove.trycloudflare.com", viewModel.uiState.value.activeBaseUrl)
+    }
 }

@@ -16,7 +16,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val serverStore = SharedPrefsServerConfigStore(applicationContext)
-        NetworkClientProvider.setHostAndPort(serverStore.loadHost(), serverStore.loadPort())
+        NetworkClientProvider.setServerConfig(
+            serverStore.loadScheme(),
+            serverStore.loadHost(),
+            serverStore.loadPort()
+        )
         AlphaTelemetryLogger.getInstance(applicationContext).logEvent(
             "APP_LIFECYCLE",
             "INFO",
