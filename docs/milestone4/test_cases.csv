@@ -1,0 +1,17 @@
+ID,Input,Condition,CaseType,Expected,Actual,Pass
+TC01,rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg,Normal daylight shelf/fridge,Standard,2x cereal_grains,"2 box(es): cereal_grains 0.87, cereal_grains 0.69 | 46.0 ms",PASS
+TC02,rf_raw_rf_frieburg_0006_COFFEE0003_png.rf.fa8e65b81fee5f7268f71b416a99f0d5.jpg,Normal daylight shelf/fridge,Standard,1x coffee_condiment,1 box(es): coffee_condiment 0.94 | 43.0 ms,PASS
+TC03,rf_raw_rf_frieburg_0010_FISH0003_png.rf.3b9f093fda33d27fd36411cdf93b94f4.jpg,Normal daylight shelf/fridge,Standard,1x canned_tuna_meat,1 box(es): canned_tuna_meat 0.94 | 36.4 ms,PASS
+TC04,rf_raw_rf_frieburg_0022_MILK0004_png.rf.e5bed198fb3ffe8d1f119ec05fee39d0.jpg,Normal daylight shelf/fridge,Standard,1x milk_dairy,1 box(es): milk_dairy 0.91 | 35.5 ms,PASS
+TC05,rf_raw_rf_frieburg_0034_PASTA0020_png.rf.8688af670e18d467ddb94d8ef06f53c3.jpg,Normal daylight shelf/fridge,Standard,2x pasta_noodles,"2 box(es): pasta_noodles 0.89, pasta_noodles 0.81 | 40.1 ms",PASS
+TC06,neg_test_0000.jpg,Empty kitchen background,Standard,0 items (empty background),0 items | 48.9 ms,PASS
+TC07,neg_test_0001.jpg,Empty kitchen background,Standard,0 items (empty background),0 items | 47.9 ms,PASS
+TC08,rf_raw_rf_frieburg_0055_VINEGAR0011_png.rf.95d2b75b3de8139f0c441bececcf2914.jpg,Look-alike negative (vinegar bottle),Hard (Look-Alike),3x coffee_condiment,"2 box(es): canned_tuna_meat 0.88, milk_dairy 0.82 | 36.6 ms",FAIL
+TC09,rf_raw_rf_frieburg_0043_SUGAR0012_png.rf.1d247785c79ab0835b8d7ed5cc60a46e.jpg,Cluttered shelf (>=4 items overlapping),Hard (Cluttered),4x coffee_condiment,"4 box(es): coffee_condiment 0.94, coffee_condiment 0.92, coffee_condiment 0.89, coffee_condiment 0.65 | 45.3 ms",PASS
+TC10,rf_raw_rf_frieburg_0004_CEREAL0045_png.rf.a1392188acb57a43ecdd3108e33a5e69.jpg,Shadowed (<100 lux) + Gated CLAHE,Hard (Low-Light),1x cereal_grains,1 box(es): cereal_grains 0.80 | 44.7 ms,PASS
+TC11,rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg,Shadowed (<100 lux) + Gated CLAHE,Hard (Low-Light),2x cereal_grains,"2 box(es): cereal_grains 0.83, coffee_condiment 0.74 | 55.2 ms",FAIL
+TC12,rf_raw_rf_frieburg_0002_CEREAL0037_png.rf.35f1a7b364114f50166d8998639b4f1c.jpg,Partial occlusion (35% foreground box),Hard (Occlusion),1x cereal_grains,1 box(es): cereal_grains 0.69 | 47.3 ms,PASS
+TC13,rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg,Partial occlusion (35% foreground box),Hard (Occlusion),2x cereal_grains,1 box(es): cereal_grains 0.49 | 48.3 ms,FAIL
+TC14,rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg,Handheld motion blur (k=11),Hard (Motion Blur),2x cereal_grains,0 items | 39.0 ms,FAIL
+TC15,rf_raw_rf_frieburg_0000_CEREAL0014_png.rf.862d1662f6d7a3f829dd42f5311a9fbd.jpg,Angled viewpoint (+/-16 deg tilt),Hard (Viewpoint),2x cereal_grains,"2 box(es): cereal_grains 0.76, cereal_grains 0.66 | 50.8 ms",PASS
+TC16,demo_pantry_pan.mp4,"Video pan (60 frames, W=5, K=3)",Hard (Video Domain Gap),9 synthetic shelf boxes (pan),"7 confirmed (2x cereal_grains, 4x coffee_condiment, 1x milk_dairy) | 19.63 FPS",PASS

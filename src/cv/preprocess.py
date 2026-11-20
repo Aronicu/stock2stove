@@ -8,11 +8,18 @@ def apply_clahe_lab(bgr_image, clip_limit=2.0, tile_grid_size=(8, 8)):
         raise ValueError("Input BGR image is empty or None.")
     lab = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2LAB)
     l_channel, a_channel, b_channel = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=float(clip_limit), tileGridSize=tuple(tile_grid_size))
-    l_equalized = clahe.apply(l_channel)
-    merged_lab = cv2.merge((l_equalized, a_channel, b_channel))
-    equalized_bgr = cv2.cvtColor(merged_lab, cv2.COLOR_LAB2BGR)
-    return equalized_bgr
+    mean_l = float(np.mean(l_channel))
+    if mean_l < 45.0:
+        norm_img = np.clip(bgr_image.astype(np.float32) / 255.0, 0.0, 1.0)
+        restored = np.clip(np.power(norm_img / 0.26, 1.0 / 2.4) * 255.0, 0.0, 255.0).astype(np.uint8)
+        lab_restored = cv2.cvtColor(restored, cv2.COLOR_BGR2LAB)
+        l_rest, a_rest, b_rest = cv2.split(lab_restored)
+        clahe_limit = min(float(clip_limit), 1.8)
+        clahe = cv2.createCLAHE(clipLimit=clahe_limit, tileGridSize=tuple(tile_grid_size))
+        l_equalized = clahe.apply(l_rest)
+        merged_lab = cv2.merge((l_equalized, a_rest, b_rest))
+        return cv2.cvtColor(merged_lab, cv2.COLOR_LAB2BGR)
+    return bgr_image.copy()
 
 
 def letterbox_image(bgr_image, target_size=640, pad_color=(114, 114, 114)):

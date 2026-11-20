@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.cv.baseline_detector import ensure_reference_templates, run_baseline_detection
 from src.cv.gemini_detector import (
@@ -26,6 +26,7 @@ from src.cv.preprocess import (
 from src.cv.temporal_tracker import create_tracker_state, update_temporal_tracker
 from src.cv.yolo_detector import get_yolo_model_status, run_yolo_detection
 from src.llm_recipe import generate_structured_recipes
+from src.run import run_single_frame
 from src.server.config import (
     DEFAULT_CONF_THRESHOLD,
     HOST,
@@ -555,6 +556,341 @@ async def handle_ws_scan(websocket: WebSocket):
         remove_session(ws_session_id)
 
 
+async def handle_ui_detect(request: Request):
+    content_type = request.headers.get("content-type", "").lower()
+    detector_mode = "yolov8"
+    enable_clahe = True
+    conf_threshold = 0.45
+    bgr_image = None
+    source_name = "upload"
+
+    try:
+        if "multipart/form-data" in content_type:
+            form = await request.form()
+            detector_mode = validate_detector_mode(form.get("detector_mode", "yolov8"))
+            enable_clahe = str(form.get("enable_clahe", "true")).lower() not in ("false", "0", "no")
+            conf_threshold = float(form.get("conf_threshold", "0.45"))
+            upload = form.get("file") or form.get("image")
+            if upload is not None and hasattr(upload, "read"):
+                source_name = getattr(upload, "filename", "upload") or "upload"
+                raw_bytes = await upload.read()
+                bgr_image = decode_image_bytes(raw_bytes)
+            else:
+                sample_name = str(form.get("sample_name", "pantry_images_cv_01.jpg"))
+                source_name = sample_name
+                sample_path = os.path.join(SAMPLES_DIR, os.path.basename(sample_name))
+                if os.path.exists(sample_path):
+                    bgr_image = cv2.imread(sample_path)
+        else:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            detector_mode = validate_detector_mode(body.get("detector_mode", "yolov8"))
+            enable_clahe = bool(body.get("enable_clahe", True))
+            conf_threshold = float(body.get("conf_threshold", 0.45))
+            b64_str = body.get("image_b64") or body.get("image")
+            if b64_str:
+                bgr_image = decode_base64_image(b64_str)
+            else:
+                sample_name = str(body.get("sample_name") or "pantry_images_cv_01.jpg")
+                source_name = sample_name
+                sample_path = os.path.join(SAMPLES_DIR, os.path.basename(sample_name))
+                if os.path.exists(sample_path):
+                    bgr_image = cv2.imread(sample_path)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    if bgr_image is None or bgr_image.size == 0:
+        return JSONResponse({"error": "No valid image provided."}, status_code=400)
+
+    res = run_single_frame(
+        bgr_image,
+        mode=detector_mode,
+        enable_clahe=enable_clahe,
+        conf_threshold=conf_threshold,
+        source_name=source_name,
+    )
+    rendered = res["rendered"]
+    post = res["postprocessed"]
+    annotated_b64 = encode_image_base64_jpeg(rendered["annotated_frame"], quality=88)
+
+    items_for_recipes = []
+    for cls_id, cnt in sorted(post["counts_by_class"].items()):
+        items_for_recipes.append({"class_id": cls_id, "count": int(cnt)})
+
+    recipes_payload = {"recipes": [], "source": "none", "latency_ms": 0.0}
+    if items_for_recipes:
+        recipes_payload = generate_structured_recipes(items_for_recipes, timeout_sec=2.0)
+
+    elapsed_ms = round(float(res["elapsed_ms"]), 2)
+    fps = round(1000.0 / max(0.01, float(res["elapsed_ms"])), 2)
+
+    return JSONResponse({
+        "source": source_name,
+        "detector_mode": detector_mode,
+        "enable_clahe": bool(enable_clahe),
+        "conf_threshold": float(conf_threshold),
+        "inference_ms": elapsed_ms,
+        "fps": fps,
+        "total_count": int(post["total_count"]),
+        "counts_by_class": post["counts_by_class"],
+        "detections": rendered["labels"],
+        "diagnostics": res["preprocessed"]["diagnostics"],
+        "annotated_jpeg_b64": annotated_b64,
+        "recipes": recipes_payload.get("recipes", []),
+        "recipe_source": recipes_payload.get("source", "offline"),
+    })
+
+
+async def handle_web_ui(request: Request):
+    sample_options = []
+    for idx in range(1, 11):
+        fname = f"pantry_images_cv_{idx:02d}.jpg"
+        sample_options.append(f'<option value="{fname}">{fname}</option>')
+    options_html = "".join(sample_options)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock-to-Stove | Pantry CV Dashboard</title>
+<style>
+  body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }}
+  header {{ background: #1e293b; padding: 14px 24px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }}
+  header h1 {{ margin: 0; font-size: 18px; color: #38bdf8; }}
+  header span {{ font-size: 12px; color: #94a3b8; }}
+  .container {{ max-width: 1200px; margin: 18px auto; padding: 0 18px; display: grid; grid-template-columns: 340px 1fr; gap: 18px; }}
+  .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px; }}
+  .card h2 {{ margin: 0 0 10px 0; font-size: 14px; color: #f8fafc; border-bottom: 1px solid #334155; padding-bottom: 6px; }}
+  label {{ display: block; font-size: 12px; color: #cbd5e1; margin-top: 8px; margin-bottom: 4px; }}
+  select, input[type="file"], input[type="range"], button {{ width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #f8fafc; font-size: 13px; }}
+  button {{ background: #0284c7; border-color: #0284c7; font-weight: 600; cursor: pointer; margin-top: 10px; }}
+  button:hover {{ background: #0369a1; }}
+  button.secondary {{ background: #334155; border-color: #475569; }}
+  .row {{ display: flex; gap: 8px; align-items: center; margin-top: 8px; }}
+  .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }}
+  .stat-box {{ background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px; text-align: center; }}
+  .stat-val {{ font-size: 18px; font-weight: 700; color: #38bdf8; }}
+  .stat-lbl {{ font-size: 11px; color: #94a3b8; }}
+  .preview-wrap {{ text-align: center; background: #0b1120; border-radius: 8px; padding: 8px; border: 1px solid #334155; min-height: 280px; display: flex; align-items: center; justify-content: center; }}
+  .preview-wrap img {{ max-width: 100%; max-height: 460px; border-radius: 4px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }}
+  th, td {{ border-bottom: 1px solid #334155; padding: 6px 8px; text-align: left; }}
+  th {{ color: #94a3b8; }}
+  .recipe-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }}
+  .recipe-card {{ background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-size: 12px; }}
+  .recipe-card h3 {{ margin: 0 0 6px 0; font-size: 13px; color: #38bdf8; }}
+  video {{ width: 100%; border-radius: 6px; margin-top: 8px; display: none; background: #000; }}
+</style>
+</head>
+<body>
+<header>
+  <h1>Stock-to-Stove | Pantry Vision Application</h1>
+  <span>Model cached once in server memory (YOLOv8n / Gemini Vision / ORB / SIFT)</span>
+</header>
+<div class="container">
+  <div class="card">
+    <h2>1. Input & Detector Settings</h2>
+    <label>Detector Mode</label>
+    <select id="mode">
+      <option value="yolov8" selected>YOLOv8n Fine-Tuned (Main)</option>
+      <option value="hybrid_gemini">Hybrid YOLOv8n + Gemini Vision</option>
+      <option value="gemini_vision">Gemini Vision (Cloud / Offline Fallback)</option>
+      <option value="orb_baseline">ORB + RANSAC (Baseline)</option>
+      <option value="sift_baseline">SIFT + RANSAC (Baseline)</option>
+    </select>
+    <label>Confidence Threshold: <span id="confVal">0.45</span></label>
+    <input type="range" id="conf" min="0.20" max="0.85" step="0.05" value="0.45" oninput="document.getElementById('confVal').innerText=this.value">
+    <div class="row">
+      <input type="checkbox" id="clahe" checked style="width:auto;">
+      <label for="clahe" style="margin:0;">Luminance-Gated Low-Light CLAHE (&lt;100 lux)</label>
+    </div>
+
+    <label style="margin-top:14px;">Upload Pantry/Fridge Image</label>
+    <input type="file" id="imageFile" accept="image/*">
+    <button onclick="runImageUpload()">Detect Uploaded Image</button>
+
+    <label style="margin-top:14px;">Or Select Built-In Sample</label>
+    <select id="sampleSelect">{options_html}</select>
+    <button class="secondary" onclick="runSample()">Detect Sample Image</button>
+
+    <label style="margin-top:14px;">Upload Video Clip (.mp4)</label>
+    <input type="file" id="videoFile" accept="video/*">
+    <button class="secondary" onclick="runVideoUpload()">Analyze Video Clip</button>
+
+    <label style="margin-top:14px;">Live Webcam Snapshot</label>
+    <div class="row">
+      <button class="secondary" onclick="toggleWebcam()">Start/Stop Cam</button>
+      <button onclick="captureWebcam()">Capture & Detect</button>
+    </div>
+    <video id="camVideo" autoplay playsinline></video>
+    <canvas id="camCanvas" style="display:none;"></canvas>
+  </div>
+
+  <div>
+    <div class="stats">
+      <div class="stat-box"><div class="stat-val" id="statCount">0</div><div class="stat-lbl">Items Detected</div></div>
+      <div class="stat-box"><div class="stat-val" id="statMs">-- ms</div><div class="stat-lbl">Processing Time</div></div>
+      <div class="stat-box"><div class="stat-val" id="statFps">-- FPS</div><div class="stat-lbl">Throughput</div></div>
+      <div class="stat-box"><div class="stat-val" id="statMode">yolov8</div><div class="stat-lbl">Active Detector</div></div>
+    </div>
+
+    <div class="card">
+      <h2>2. Annotated Detection Overlay</h2>
+      <div class="preview-wrap"><img id="resultImg" alt="Detection overlay preview will appear here"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>3. Detections, Confidence & Counts</h2>
+      <div id="countsSummary" style="font-size:13px; color:#cbd5e1; margin-bottom:6px;">No scan run yet.</div>
+      <table>
+        <thead><tr><th>#</th><th>Class ID</th><th>Display Name</th><th>Confidence</th><th>Normalized Box [x1, y1, x2, y2]</th></tr></thead>
+        <tbody id="detTable"></tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>4. Zero-Waste Recipe Suggestions</h2>
+      <div class="recipe-grid" id="recipeGrid"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let camStream = null;
+async function renderDetectionResponse(data) {{
+  if (data.error) {{ alert(data.error); return; }}
+  document.getElementById('statCount').innerText = data.total_count ?? 0;
+  document.getElementById('statMs').innerText = (data.inference_ms ?? 0) + ' ms';
+  document.getElementById('statFps').innerText = (data.fps ?? 0) + ' FPS';
+  document.getElementById('statMode').innerText = data.detector_mode || '--';
+  if (data.annotated_jpeg_b64) {{
+    document.getElementById('resultImg').src = 'data:image/jpeg;base64,' + data.annotated_jpeg_b64;
+  }}
+  const counts = data.counts_by_class || {{}};
+  const countStr = Object.entries(counts).map(([k, v]) => `${{k}}: ${{v}}`).join(' | ') || 'None';
+  document.getElementById('countsSummary').innerText = 'Counts by class: ' + countStr;
+
+  const tbody = document.getElementById('detTable');
+  tbody.innerHTML = '';
+  (data.detections || []).forEach((d, idx) => {{
+    const tr = document.createElement('tr');
+    const boxStr = (d.bbox_norm || []).map(v => Number(v).toFixed(3)).join(', ');
+    tr.innerHTML = `<td>${{idx + 1}}</td><td>${{d.class_id}}</td><td>${{d.display_name}}</td><td>${{Number(d.confidence).toFixed(2)}}</td><td>[${{boxStr}}]</td>`;
+    tbody.appendChild(tr);
+  }});
+
+  const rGrid = document.getElementById('recipeGrid');
+  rGrid.innerHTML = '';
+  (data.recipes || []).forEach(r => {{
+    const div = document.createElement('div');
+    div.className = 'recipe-card';
+    const stepsHtml = (r.steps || []).slice(0, 3).map(s => `<li>${{s}}</li>`).join('');
+    div.innerHTML = `<h3>${{r.title}}</h3><div>Prep: ${{r.prep_time_mins}} mins</div><ol style="padding-left:16px;margin:6px 0;">${{stepsHtml}}</ol>`;
+    rGrid.appendChild(div);
+  }});
+}}
+
+async function runImageUpload() {{
+  const fileInput = document.getElementById('imageFile');
+  if (!fileInput.files.length) {{ alert('Select an image file first.'); return; }}
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  fd.append('detector_mode', document.getElementById('mode').value);
+  fd.append('conf_threshold', document.getElementById('conf').value);
+  fd.append('enable_clahe', document.getElementById('clahe').checked ? 'true' : 'false');
+  const res = await fetch('/api/v1/ui/detect', {{ method: 'POST', body: fd }});
+  await renderDetectionResponse(await res.json());
+}}
+
+async function runSample() {{
+  const payload = {{
+    sample_name: document.getElementById('sampleSelect').value,
+    detector_mode: document.getElementById('mode').value,
+    conf_threshold: parseFloat(document.getElementById('conf').value),
+    enable_clahe: document.getElementById('clahe').checked
+  }};
+  const res = await fetch('/api/v1/ui/detect', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json' }},
+    body: JSON.stringify(payload)
+  }});
+  await renderDetectionResponse(await res.json());
+}}
+
+async function runVideoUpload() {{
+  const fileInput = document.getElementById('videoFile');
+  if (!fileInput.files.length) {{ alert('Select a video file first.'); return; }}
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  fd.append('detector_mode', document.getElementById('mode').value);
+  fd.append('conf_threshold', document.getElementById('conf').value);
+  fd.append('enable_clahe', document.getElementById('clahe').checked ? 'true' : 'false');
+  const res = await fetch('/api/v1/scan/video', {{ method: 'POST', body: fd }});
+  const data = await res.json();
+  if (data.error) {{ alert(data.error); return; }}
+  const kf = (data.keyframes && data.keyframes.length) ? data.keyframes[0] : null;
+  const inv = data.confirmed_inventory || [];
+  const counts = {{}};
+  let total = 0;
+  inv.forEach(item => {{ counts[item.class_id] = item.count; total += item.count; }});
+  await renderDetectionResponse({{
+    detector_mode: data.detector_mode,
+    inference_ms: data.frame_summaries?.[0]?.inference_ms ?? 0,
+    fps: data.frame_summaries?.[0]?.inference_ms ? (1000.0 / data.frame_summaries[0].inference_ms).toFixed(1) : 0,
+    total_count: total,
+    counts_by_class: counts,
+    detections: data.frame_summaries?.[0]?.detections ?? [],
+    annotated_jpeg_b64: kf ? kf.annotated_jpeg_b64 : null,
+    recipes: []
+  }});
+}}
+
+async function toggleWebcam() {{
+  const vid = document.getElementById('camVideo');
+  if (camStream) {{
+    camStream.getTracks().forEach(t => t.stop());
+    camStream = null;
+    vid.style.display = 'none';
+    return;
+  }}
+  camStream = await navigator.mediaDevices.getUserMedia({{ video: true }});
+  vid.srcObject = camStream;
+  vid.style.display = 'block';
+}}
+
+async function captureWebcam() {{
+  const vid = document.getElementById('camVideo');
+  if (!camStream || !vid.videoWidth) {{ alert('Start webcam first.'); return; }}
+  const canvas = document.getElementById('camCanvas');
+  canvas.width = vid.videoWidth;
+  canvas.height = vid.videoHeight;
+  canvas.getContext('2d').drawImage(vid, 0, 0);
+  const b64 = canvas.toDataURL('image/jpeg', 0.88);
+  const res = await fetch('/api/v1/ui/detect', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{
+      image_b64: b64,
+      detector_mode: document.getElementById('mode').value,
+      conf_threshold: parseFloat(document.getElementById('conf').value),
+      enable_clahe: document.getElementById('clahe').checked
+    }})
+  }});
+  await renderDetectionResponse(await res.json());
+}}
+
+window.addEventListener('DOMContentLoaded', runSample);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
 def create_app():
     ensure_reference_templates(templates_dir=TEMPLATES_DIR, samples_dir=SAMPLES_DIR)
     application = FastAPI(title="Stock-to-Stove Local Inference Server", version="1.0.0")
@@ -565,6 +901,8 @@ def create_app():
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.add_api_route("/", handle_web_ui, methods=["GET"])
+    application.add_api_route("/api/v1/ui/detect", handle_ui_detect, methods=["POST"])
     application.add_api_route("/api/v1/health", handle_health, methods=["GET"])
     application.add_api_route("/api/v1/scan/image", handle_scan_image, methods=["POST"])
     application.add_api_route("/api/v1/scan/video", handle_scan_video, methods=["POST"])

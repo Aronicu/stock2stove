@@ -543,5 +543,158 @@
       ],
       "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce."
     }
+  ],
+  "canned_tomato|cereal_grains|coffee_condiment|pasta_noodles": [
+    {
+      "id": "recipe_arrabbiata_tuna",
+      "title": "One-Pan Pantry Tuna Arrabbiata Pasta",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Pasta & Noodles",
+        "Canned Tomatoes"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Chili Flakes"
+      ],
+      "steps": [
+        "Boil pasta or noodles in salted water until al dente, reserving 1/4 cup pasta water.",
+        "Warm oil in a skillet, pour in canned tomatoes, and simmer for 5 minutes until thickened.",
+        "Flake drained canned tuna or meat into the simmering tomato sauce.",
+        "Toss drained pasta into the skillet with reserved water and serve hot."
+      ],
+      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce."
+    },
+    {
+      "id": "recipe_savory_grain_bowl",
+      "title": "Hearty Savory Grain, Tomato & Protein Bowl",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Cereal & Grains",
+        "Canned Tomatoes"
+      ],
+      "additional_staples": [
+        "Water",
+        "Salt",
+        "Black Pepper",
+        "Soy Sauce or Oil"
+      ],
+      "steps": [
+        "Simmer grains or oats with water and a spoonful of canned tomatoes for a savory base.",
+        "Warm canned tuna or meat in a small pan with condiments and black pepper.",
+        "Spoon the savory tomato grains into a bowl and top with the seasoned protein.",
+        "Finish with a pan-fried egg or fresh chopped produce on top."
+      ],
+      "zero_waste_tip": "Savory oatmeal and rice bowls rescue single-serving grain leftovers in under 15 minutes."
+    },
+    {
+      "id": "recipe_cafe_breakfast_parfait",
+      "title": "Mocha Morning Grain & Dairy Breakfast Bowl",
+      "prep_time_mins": 8,
+      "difficulty": "Easy",
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Cereal & Grains",
+        "Coffee & Condiments"
+      ],
+      "additional_staples": [
+        "Warm Water",
+        "Pinch of Salt"
+      ],
+      "steps": [
+        "Combine cereal or oats with milk or yogurt in a bowl and let soften for 3 minutes.",
+        "Dissolve a half-teaspoon of instant coffee or condiment drizzle in a splash of warm milk.",
+        "Swirl the coffee-dairy mixture over the grain bowl for a cafe-style breakfast.",
+        "Serve chilled or gently warmed."
+      ],
+      "zero_waste_tip": "Crush the fine cereal flakes at the bottom of the box as a crunchy topping layer."
+    }
+  ],
+  "eggs|fresh_produce": [
+    {
+      "id": "recipe_shakshuka_eggs",
+      "title": "Rustic Skillet Tomato & Poached Eggs (Shakshuka)",
+      "prep_time_mins": 12,
+      "difficulty": "Easy",
+      "storage_zones_used": [
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Eggs",
+        "Fresh Produce"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Saute chopped fresh produce in a skillet with oil until softened.",
+        "Pour in canned tomatoes, season with salt and pepper, and simmer for 5 minutes.",
+        "Make gentle wells in the tomato sauce and crack eggs directly into each well.",
+        "Cover skillet and cook on low for 4 to 5 minutes until egg whites set."
+      ],
+      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce."
+    },
+    {
+      "id": "recipe_creamy_fridge_pasta",
+      "title": "Creamy Garlic Dairy & Vegetable Skillet Pasta",
+      "prep_time_mins": 18,
+      "difficulty": "Easy",
+      "storage_zones_used": [
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Fresh Produce"
+      ],
+      "additional_staples": [
+        "Salt",
+        "Black Pepper",
+        "Cooking Oil"
+      ],
+      "steps": [
+        "Cook pasta in salted boiling water until tender, then drain.",
+        "Saute diced fresh produce (onions, tomatoes, or greens) in oil over medium heat for 4 minutes.",
+        "Lower heat and stir in milk, cheese, or butter until a smooth pan sauce forms.",
+        "Fold the cooked pasta into the creamy vegetable sauce and season to taste."
+      ],
+      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste."
+    },
+    {
+      "id": "recipe_protein_scramble",
+      "title": "Farmhouse Fridge Egg, Dairy & Tuna Scramble",
+      "prep_time_mins": 10,
+      "difficulty": "Easy",
+      "storage_zones_used": [
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Eggs"
+      ],
+      "additional_staples": [
+        "Salt",
+        "Black Pepper",
+        "Cooking Oil"
+      ],
+      "steps": [
+        "Whisk eggs with a splash of milk or dairy and a pinch of salt.",
+        "Warm drained canned tuna or meat in a lightly oiled non-stick pan for 2 minutes.",
+        "Pour whisked eggs over the protein and fold gently over medium-low heat until softly set.",
+        "Top with any remaining cheese or diced vegetables and serve immediately."
+      ],
+      "zero_waste_tip": "Use any small leftover dairy splashes at the bottom of the carton to make eggs fluffier."
+    }
   ]
 }

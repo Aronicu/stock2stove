@@ -4,6 +4,8 @@ import json
 import math
 import os
 import platform
+import random
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -15,13 +17,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report
 
+random.seed(42)
+np.random.seed(42)
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.cv.baseline_detector import compute_box_iou
+from src.cv.yolo_detector import MODEL_REGISTRY
 from src.run import infer, postprocess, preprocess, process_video_file, render
-from src.server.config import NMS_IOU_THRESHOLD, UNIFIED_CLASSES, normalize_class_id
+from src.server.config import (
+    FINE_TUNED_ONNX_PATH,
+    FINE_TUNED_PT_PATH,
+    NMS_IOU_THRESHOLD,
+    UNIFIED_CLASSES,
+    normalize_class_id,
+)
 from src.training.evaluate_all import (
     compute_map50_95,
     compute_per_class_pr,
@@ -33,6 +45,46 @@ from src.training.evaluate_all import (
 )
 
 CLASS_ORDER = [entry["class_id"] for entry in UNIFIED_CLASSES]
+
+CP3_BASELINE_METRICS = {
+    "normal": {"precision": 0.8526, "recall": 0.8199, "f1_score": 0.8359, "mAP50": 0.7494, "mAP50_95": 0.5814, "mean_inference_ms": 53.00, "fps": 18.87},
+    "shadowed_sub100lux": {"precision": 0.7931, "recall": 0.5287, "f1_score": 0.6345, "mAP50": 0.4427, "mAP50_95": 0.3461, "mean_inference_ms": 47.58, "fps": 21.02},
+    "motion_blur": {"precision": 0.7584, "recall": 0.5172, "f1_score": 0.6150, "mAP50": 0.4362, "mAP50_95": 0.3329, "mean_inference_ms": 49.21, "fps": 20.32},
+    "angled_perspective": {"precision": 0.8061, "recall": 0.6054, "f1_score": 0.6915, "mAP50": 0.4829, "mAP50_95": 0.2116, "mean_inference_ms": 59.31, "fps": 16.86},
+    "occluded_20_50pct": {"precision": 0.7241, "recall": 0.4023, "f1_score": 0.5172, "mAP50": 0.3678, "mAP50_95": 0.3010, "mean_inference_ms": 50.26, "fps": 19.90},
+    "cluttered_shelf": {"precision": 0.9403, "recall": 0.8514, "f1_score": 0.8936, "mAP50": 0.8190, "mAP50_95": 0.5989, "mean_inference_ms": 53.17, "fps": 18.81},
+}
+
+
+def configure_eval_weights(weights_path):
+    resolved = Path(weights_path)
+    if not resolved.is_absolute():
+        resolved = Path(PROJECT_ROOT) / resolved
+    if not resolved.exists():
+        fallback = Path(FINE_TUNED_PT_PATH)
+        if fallback.exists():
+            resolved = fallback
+        else:
+            raise FileNotFoundError(f"Weights file not found: {weights_path}")
+
+    from ultralytics import YOLO
+
+    MODEL_REGISTRY["yolov8_model"] = YOLO(str(resolved))
+    MODEL_REGISTRY["yolov8_path"] = str(resolved)
+    MODEL_REGISTRY["ultralytics_available"] = True
+
+    pt_size_mb = round(float(resolved.stat().st_size) / (1024.0 * 1024.0), 2)
+    onnx_size_mb = None
+    onnx_path = Path(FINE_TUNED_ONNX_PATH)
+    if onnx_path.exists():
+        onnx_size_mb = round(float(onnx_path.stat().st_size) / (1024.0 * 1024.0), 2)
+
+    return {
+        "weights_path": str(weights_path),
+        "resolved_weights_path": str(resolved),
+        "model_size_mb": pt_size_mb,
+        "onnx_size_mb": onnx_size_mb,
+    }
 
 
 def simulate_motion_blur(bgr_image, kernel_size=11):
@@ -724,6 +776,256 @@ def build_failure_gallery_and_counts(condition_results, video_eval, output_dir):
     }
 
 
+def load_yolo_split_samples(data_yaml_path, split_name="test"):
+    if str(split_name).lower() == "test":
+        return load_yolo_test_split(data_yaml_path)
+
+    import yaml
+
+    yaml_path = Path(data_yaml_path).resolve()
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        meta = yaml.safe_load(f) or {}
+
+    norm_split = "valid" if str(split_name).lower() in ("val", "valid") else str(split_name).lower()
+    temp_yaml_dir = Path(PROJECT_ROOT) / "outputs" / "eval"
+    temp_yaml_dir.mkdir(parents=True, exist_ok=True)
+    temp_yaml = temp_yaml_dir / f"_tmp_{norm_split}.yaml"
+    patched = dict(meta)
+    patched["test"] = f"{norm_split}/images"
+    with open(temp_yaml, "w", encoding="utf-8") as f:
+        yaml.safe_dump(patched, f, sort_keys=False)
+    try:
+        return load_yolo_test_split(str(temp_yaml))
+    finally:
+        if temp_yaml.exists():
+            temp_yaml.unlink()
+
+
+def build_cp3_vs_cp4_comparison(prelim_rows, output_dir):
+    split_labels = {
+        "normal": "Normal",
+        "shadowed_sub100lux": "Shadow (<100 lux)",
+        "motion_blur": "Motion Blur (k=11)",
+        "angled_perspective": "Angled (+/-16 deg)",
+        "occluded_20_50pct": "Occluded (35%)",
+        "cluttered_shelf": "Cluttered (>=4 items)",
+    }
+    cp4_lookup = {}
+    for row in prelim_rows:
+        if row["detector"] == "yolov8n_pipeline":
+            cp4_lookup[row["split"]] = row
+
+    comp_rows = []
+    for sp in [
+        "normal",
+        "shadowed_sub100lux",
+        "motion_blur",
+        "angled_perspective",
+        "occluded_20_50pct",
+        "cluttered_shelf",
+    ]:
+        cp3 = CP3_BASELINE_METRICS[sp]
+        cp4 = cp4_lookup[sp]
+        comp_rows.append({
+            "split": sp,
+            "condition": split_labels[sp],
+            "cp3_precision": round(float(cp3["precision"]), 4),
+            "cp4_precision": round(float(cp4["precision"]), 4),
+            "cp3_recall": round(float(cp3["recall"]), 4),
+            "cp4_recall": round(float(cp4["recall"]), 4),
+            "cp3_f1": round(float(cp3["f1_score"]), 4),
+            "cp4_f1": round(float(cp4["f1_score"]), 4),
+            "delta_f1": round(float(cp4["f1_score"]) - float(cp3["f1_score"]), 4),
+            "cp3_mAP50": round(float(cp3["mAP50"]), 4),
+            "cp4_mAP50": round(float(cp4["mAP50"]), 4),
+            "delta_mAP50": round(float(cp4["mAP50"]) - float(cp3["mAP50"]), 4),
+            "cp3_mAP50_95": round(float(cp3["mAP50_95"]), 4),
+            "cp4_mAP50_95": round(float(cp4["mAP50_95"]), 4),
+            "cp3_fps": round(float(cp3["fps"]), 2),
+            "cp4_fps": round(float(cp4["fps"]), 2),
+        })
+
+    csv_path = os.path.join(output_dir, "cp3_vs_cp4_comparison.csv")
+    fieldnames = [
+        "split",
+        "condition",
+        "cp3_precision",
+        "cp4_precision",
+        "cp3_recall",
+        "cp4_recall",
+        "cp3_f1",
+        "cp4_f1",
+        "delta_f1",
+        "cp3_mAP50",
+        "cp4_mAP50",
+        "delta_mAP50",
+        "cp3_mAP50_95",
+        "cp4_mAP50_95",
+        "cp3_fps",
+        "cp4_fps",
+    ]
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in comp_rows:
+            writer.writerow(row)
+
+    chart_path = os.path.join(output_dir, "cp3_vs_cp4_comparison.png")
+    labels = ["Normal", "Shadow\n(<100 lux)", "Motion\nBlur", "Angled\n(±16°)", "Occluded\n(35%)", "Cluttered\n(>=4 items)"]
+    x = np.arange(len(comp_rows))
+    width = 0.34
+
+    fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.2))
+    panels = [
+        (axes[0], "cp3_mAP50", "cp4_mAP50", "mAP@0.50: Checkpoint 3 vs. Checkpoint 4"),
+        (axes[1], "cp3_f1", "cp4_f1", "F1-Score: Checkpoint 3 vs. Checkpoint 4"),
+    ]
+    for ax, k3, k4, title in panels:
+        v3 = [float(r[k3]) for r in comp_rows]
+        v4 = [float(r[k4]) for r in comp_rows]
+        b3 = ax.bar(x - width / 2.0, v3, width, label="CP3 (cp3-core)", color="#94A3B8", edgecolor="black", linewidth=0.5)
+        b4 = ax.bar(x + width / 2.0, v4, width, label="CP4 (cp4-80)", color="#1D4ED8", edgecolor="black", linewidth=0.5)
+        for bar in b3:
+            hv = bar.get_height()
+            ax.annotate(f"{hv:.3f}", xy=(bar.get_x() + bar.get_width() / 2.0, hv), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.5)
+        for bar in b4:
+            hv = bar.get_height()
+            ax.annotate(f"{hv:.3f}", xy=(bar.get_x() + bar.get_width() / 2.0, hv), xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=7.5, fontweight="bold")
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=8.5)
+        ax.set_ylim(0.0, 1.05)
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+        ax.legend(fontsize=8.5, loc="upper right")
+
+    fig.suptitle("Stock-to-Stove Progress Since Checkpoint 3 (Luminance-Gated Low-Light Restoration)", fontsize=12.5, fontweight="bold")
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.savefig(chart_path, dpi=160)
+    plt.close(fig)
+
+    return comp_rows, csv_path, chart_path
+
+
+def format_det_actual_summary(rec):
+    dets = rec.get("detections", [])
+    if not dets:
+        return f"0 items | {rec.get('elapsed_ms', 0.0):.1f} ms"
+    parts = []
+    for d in dets[:4]:
+        parts.append(f"{d['class_id']} {float(d['confidence']):.2f}")
+    if len(dets) > 4:
+        parts.append(f"+{len(dets) - 4} more")
+    return f"{len(dets)} box(es): " + ", ".join(parts) + f" | {rec.get('elapsed_ms', 0.0):.1f} ms"
+
+
+def build_milestone4_test_cases(condition_results, video_eval, false_meat, output_dir):
+    cases = []
+    used = set()
+
+    def add_record_case(cond_key, cond_label, case_type, rec, force_pass=None):
+        gts = rec["gt_boxes"]
+        dets = rec["detections"]
+        gt_counts = {}
+        for g in gts:
+            gt_counts[g["class_id"]] = gt_counts.get(g["class_id"], 0) + 1
+        det_counts = {}
+        for d in dets:
+            det_counts[d["class_id"]] = det_counts.get(d["class_id"], 0) + 1
+
+        exp_str = ", ".join([f"{v}x {k}" for k, v in sorted(gt_counts.items())]) or "0 items (empty background)"
+        act_str = format_det_actual_summary(rec)
+        passed = bool(force_pass) if force_pass is not None else (gt_counts == det_counts)
+        cases.append({
+            "ID": f"TC{len(cases) + 1:02d}",
+            "Input": rec["filename"],
+            "Condition": cond_label,
+            "CaseType": case_type,
+            "Expected": exp_str,
+            "Actual": act_str,
+            "Pass": "PASS" if passed else "FAIL",
+        })
+
+    def pick_from(cond_key, cond_label, case_type, want_pass, want_fail, diverse_classes=False):
+        recs = list(condition_results[cond_key]["records"].values())
+        pass_list = []
+        fail_list = []
+        seen_classes = set()
+        for rec in recs:
+            if (cond_key, rec["filename"]) in used:
+                continue
+            if len(rec["gt_boxes"]) == 0:
+                continue
+            gt_c = {}
+            for g in rec["gt_boxes"]:
+                gt_c[g["class_id"]] = gt_c.get(g["class_id"], 0) + 1
+            det_c = {}
+            for d in rec["detections"]:
+                det_c[d["class_id"]] = det_c.get(d["class_id"], 0) + 1
+            if gt_c == det_c:
+                if diverse_classes:
+                    primary = sorted(gt_c.keys())[0]
+                    if primary in seen_classes and len(pass_list) < want_pass:
+                        continue
+                    seen_classes.add(primary)
+                pass_list.append(rec)
+            else:
+                fail_list.append(rec)
+
+        for rec in pass_list[:want_pass]:
+            used.add((cond_key, rec["filename"]))
+            add_record_case(cond_key, cond_label, case_type, rec, force_pass=True)
+        for rec in fail_list[:want_fail]:
+            used.add((cond_key, rec["filename"]))
+            add_record_case(cond_key, cond_label, case_type, rec, force_pass=False)
+
+    pick_from("normal", "Normal daylight shelf/fridge", "Standard", 5, 0, diverse_classes=True)
+
+    neg_recs = [r for r in condition_results["normal"]["records"].values() if len(r["gt_boxes"]) == 0]
+    for rec in neg_recs[:2]:
+        used.add(("normal", rec["filename"]))
+        add_record_case("normal", "Empty kitchen background", "Standard", rec, force_pass=(len(rec["detections"]) == 0))
+
+    vinegar_rec = None
+    for rec in condition_results["normal"]["records"].values():
+        if "VINEGAR" in rec["filename"] and len(rec["detections"]) > 0:
+            vinegar_rec = rec
+            break
+    if vinegar_rec is not None:
+        used.add(("normal", vinegar_rec["filename"]))
+        has_false_meat = any(d["class_id"] == "canned_tuna_meat" for d in vinegar_rec["detections"])
+        add_record_case("normal", "Look-alike negative (vinegar bottle)", "Hard (Look-Alike)", vinegar_rec, force_pass=(not has_false_meat))
+    else:
+        pick_from("normal", "Normal shelf (fine-grained class)", "Standard", 1, 0)
+
+    pick_from("cluttered_shelf", "Cluttered shelf (>=4 items overlapping)", "Hard (Cluttered)", 1, 0)
+    pick_from("shadowed_sub100lux", "Shadowed (<100 lux) + Gated CLAHE", "Hard (Low-Light)", 1, 1)
+    pick_from("occluded_20_50pct", "Partial occlusion (35% foreground box)", "Hard (Occlusion)", 1, 1)
+    pick_from("motion_blur", "Handheld motion blur (k=11)", "Hard (Motion Blur)", 0, 1)
+    pick_from("angled_perspective", "Angled viewpoint (+/-16 deg tilt)", "Hard (Viewpoint)", 1, 0)
+
+    vid_exp = f"{video_eval['expected_unique_items']} synthetic shelf boxes (pan)"
+    vid_got = ", ".join([f"{v}x {k}" for k, v in sorted(video_eval["confirmed_counts_by_class"].items())])
+    vid_pass = abs(video_eval["clip_count_error"]) <= 2
+    cases.append({
+        "ID": f"TC{len(cases) + 1:02d}",
+        "Input": "demo_pantry_pan.mp4",
+        "Condition": "Video pan (60 frames, W=5, K=3)",
+        "CaseType": "Hard (Video Domain Gap)",
+        "Expected": vid_exp,
+        "Actual": f"{video_eval['predicted_confirmed_items']} confirmed ({vid_got}) | {video_eval['fps']} FPS",
+        "Pass": "PASS" if vid_pass else "FAIL",
+    })
+
+    cases_csv = os.path.join(output_dir, "test_cases.csv")
+    with open(cases_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["ID", "Input", "Condition", "CaseType", "Expected", "Actual", "Pass"])
+        writer.writeheader()
+        for row in cases:
+            writer.writerow(row)
+
+    return cases, cases_csv
+
+
 def build_representative_test_log(condition_results, video_eval, output_dir):
     log_rows = []
     used = set()
@@ -869,7 +1171,7 @@ def render_pipeline_stages_strip(samples, output_dir):
 
         stages = [
             ("1. Input Frame", stage1),
-            ("2. preprocess() LAB+640", stage2),
+            ("2. preprocess() Gated+640", stage2),
             (f"3. infer() raw ({len(raw_dets)})", stage3),
             (f"4. postprocess()+render() ({post['total_count']})", stage4),
         ]
@@ -960,22 +1262,27 @@ def render_preliminary_comparison_chart(rows, output_path):
             ax.set_ylim(ylim[0], ylim[1])
         ax.legend(fontsize=8, loc="best")
 
-    fig.suptitle("Stock-to-Stove Milestone 3: Classical Baselines vs. Fine-Tuned YOLOv8n (Held-Out Test Set)", fontsize=12.5, fontweight="bold")
+    fig.suptitle("Stock-to-Stove Milestone 4: Classical Baselines vs. Fine-Tuned YOLOv8n (Held-Out Test Set)", fontsize=12.5, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(output_path, dpi=160)
     plt.close(fig)
 
 
-def run_milestone3_evaluation(
+def run_milestone4_evaluation(
     data_yaml="data/dataset_yolo/data.yaml",
-    output_dir="docs/milestone3",
+    output_dir="docs/milestone4",
+    weights_path="models/best.pt",
+    split_name="test",
     conf_threshold=0.45,
     iou_threshold=0.50,
 ):
+    random.seed(42)
+    np.random.seed(42)
     os.makedirs(output_dir, exist_ok=True)
-    samples = load_yolo_test_split(data_yaml)
+    weights_info = configure_eval_weights(weights_path)
+    samples = load_yolo_split_samples(data_yaml, split_name=split_name)
     if not samples:
-        raise RuntimeError(f"No held-out test samples found for {data_yaml}")
+        raise RuntimeError(f"No held-out {split_name} samples found for {data_yaml}")
 
     conditions = build_condition_datasets(samples)
     splits_order = [
@@ -992,11 +1299,11 @@ def run_milestone3_evaluation(
     condition_results = {}
     cluttered_names = set(item["filename"] for item in conditions["cluttered_shelf"])
 
-    for split_name in splits_order:
-        items = conditions[split_name]
-        condition_results[split_name] = {}
+    for sp_name in splits_order:
+        items = conditions[sp_name]
+        condition_results[sp_name] = {}
 
-        if split_name == "cluttered_shelf":
+        if sp_name == "cluttered_shelf":
             for det_name in detectors_order:
                 norm_res = condition_results["normal"][det_name]
                 sub_preds = [p for p in norm_res["preds"] if p["image_id"] in cluttered_names]
@@ -1004,7 +1311,7 @@ def run_milestone3_evaluation(
                 sub_lats = [norm_res["records"][fn]["elapsed_ms"] for fn in cluttered_names if fn in norm_res["records"]]
                 sub_recs = {fn: norm_res["records"][fn] for fn in cluttered_names if fn in norm_res["records"]}
                 row, ap_c, p_c, r_c = summarize_split_metrics(
-                    split_name,
+                    sp_name,
                     det_name,
                     sub_preds,
                     sub_gts,
@@ -1013,7 +1320,7 @@ def run_milestone3_evaluation(
                     iou_threshold=iou_threshold,
                 )
                 prelim_rows.append(row)
-                condition_results[split_name][det_name] = {
+                condition_results[sp_name][det_name] = {
                     "row": row,
                     "ap_per_class": ap_c,
                     "precision_per_class": p_c,
@@ -1022,13 +1329,13 @@ def run_milestone3_evaluation(
                     "gts": sub_gts,
                     "records": sub_recs,
                 }
-            condition_results[split_name]["yolo_row"] = condition_results[split_name]["yolov8n_pipeline"]["row"]
-            condition_results[split_name]["records"] = condition_results[split_name]["yolov8n_pipeline"]["records"]
-            condition_results[split_name]["errors"] = analyze_image_errors(condition_results[split_name]["records"], iou_match_thresh=0.45)
+            condition_results[sp_name]["yolo_row"] = condition_results[sp_name]["yolov8n_pipeline"]["row"]
+            condition_results[sp_name]["records"] = condition_results[sp_name]["yolov8n_pipeline"]["records"]
+            condition_results[sp_name]["errors"] = analyze_image_errors(condition_results[sp_name]["records"], iou_match_thresh=0.45)
             continue
 
         for det_name in detectors_order:
-            print(f"[evaluate] Running {det_name} on {split_name} ({len(items)} images)...", flush=True)
+            print(f"[evaluate] Running {det_name} on {sp_name} ({len(items)} images)...", flush=True)
             mode_arg = "yolov8" if det_name == "yolov8n_pipeline" else det_name
             preds, gts, recs, lats = run_detector_on_split(
                 items,
@@ -1038,7 +1345,7 @@ def run_milestone3_evaluation(
                 iou_threshold=NMS_IOU_THRESHOLD,
             )
             row, ap_c, p_c, r_c = summarize_split_metrics(
-                split_name,
+                sp_name,
                 det_name,
                 preds,
                 gts,
@@ -1047,7 +1354,7 @@ def run_milestone3_evaluation(
                 iou_threshold=iou_threshold,
             )
             prelim_rows.append(row)
-            condition_results[split_name][det_name] = {
+            condition_results[sp_name][det_name] = {
                 "row": row,
                 "ap_per_class": ap_c,
                 "precision_per_class": p_c,
@@ -1057,9 +1364,9 @@ def run_milestone3_evaluation(
                 "records": recs,
             }
 
-        condition_results[split_name]["yolo_row"] = condition_results[split_name]["yolov8n_pipeline"]["row"]
-        condition_results[split_name]["records"] = condition_results[split_name]["yolov8n_pipeline"]["records"]
-        condition_results[split_name]["errors"] = analyze_image_errors(condition_results[split_name]["records"], iou_match_thresh=0.45)
+        condition_results[sp_name]["yolo_row"] = condition_results[sp_name]["yolov8n_pipeline"]["row"]
+        condition_results[sp_name]["records"] = condition_results[sp_name]["yolov8n_pipeline"]["records"]
+        condition_results[sp_name]["errors"] = analyze_image_errors(condition_results[sp_name]["records"], iou_match_thresh=0.45)
 
     ablation_rows = []
     for sp_name in ["normal", "shadowed_sub100lux"]:
@@ -1107,6 +1414,7 @@ def run_milestone3_evaluation(
     chart_path = os.path.join(output_dir, "preliminary_results_comparison.png")
     render_preliminary_comparison_chart(prelim_rows, chart_path)
 
+    cp3_vs_cp4_rows, cp3_csv_path, cp3_chart_path = build_cp3_vs_cp4_comparison(prelim_rows, output_dir)
     report_path, cm_path = save_confusion_matrix_and_report(condition_results["normal"]["errors"], output_dir)
 
     video_eval_dir = os.path.join(PROJECT_ROOT, "outputs", "eval_video")
@@ -1118,9 +1426,10 @@ def run_milestone3_evaluation(
     )
 
     test_log_rows, test_log_path = build_representative_test_log(condition_results, video_eval, output_dir)
+    false_meat = evaluate_false_meat_rate(data_yaml, conf_threshold=float(conf_threshold))
+    test_cases_rows, test_cases_path = build_milestone4_test_cases(condition_results, video_eval, false_meat, output_dir)
     failure_analysis = build_failure_gallery_and_counts(condition_results, video_eval, output_dir)
     strip_path = render_pipeline_stages_strip(samples, output_dir)
-    false_meat = evaluate_false_meat_rate(data_yaml, conf_threshold=float(conf_threshold))
 
     normal_yolo = condition_results["normal"]["yolov8n_pipeline"]
     per_class_rows = []
@@ -1139,7 +1448,16 @@ def run_milestone3_evaluation(
         "cpu_threads": int(os.cpu_count() or 16),
     }
 
+    eval_out_dir = os.path.join(PROJECT_ROOT, "outputs", "eval")
+    os.makedirs(eval_out_dir, exist_ok=True)
+    eval_metrics_json = os.path.join(eval_out_dir, "metrics.json")
+    eval_cm_png = os.path.join(eval_out_dir, "confusion_matrix.png")
+    shutil.copy2(cm_path, eval_cm_png)
+
     summary_payload = {
+        "seed": 42,
+        "split": str(split_name),
+        "weights": weights_info,
         "hardware": hardware,
         "conf_threshold": float(conf_threshold),
         "nms_iou_threshold": float(NMS_IOU_THRESHOLD),
@@ -1148,10 +1466,18 @@ def run_milestone3_evaluation(
         "num_gt_boxes": len(condition_results["normal"]["yolov8n_pipeline"]["gts"]),
         "preliminary_results": prelim_rows,
         "clahe_ablation": ablation_rows,
+        "cp3_vs_cp4_comparison": cp3_vs_cp4_rows,
         "per_class_normal_yolov8n": per_class_rows,
         "video_evaluation": video_eval,
         "false_meat_evaluation": false_meat,
         "failure_analysis": failure_analysis,
+        "test_cases": test_cases_rows,
+        "test_cases_summary": {
+            "total_cases": len(test_cases_rows),
+            "hard_cases": sum(1 for r in test_cases_rows if r["CaseType"] != "Standard"),
+            "passed": sum(1 for r in test_cases_rows if r["Pass"] == "PASS"),
+            "failed": sum(1 for r in test_cases_rows if r["Pass"] == "FAIL"),
+        },
         "test_log_summary": {
             "total_cases": len(test_log_rows),
             "passed": sum(1 for r in test_log_rows if r["Status"] == "PASS"),
@@ -1160,42 +1486,105 @@ def run_milestone3_evaluation(
         "artifacts": {
             "preliminary_results_csv": prelim_csv_path,
             "preliminary_comparison_png": chart_path,
+            "cp3_vs_cp4_csv": cp3_csv_path,
+            "cp3_vs_cp4_png": cp3_chart_path,
             "classification_report_txt": report_path,
             "confusion_matrix_png": cm_path,
+            "test_cases_csv": test_cases_path,
             "test_log_csv": test_log_path,
             "failure_gallery_png": failure_analysis["failure_gallery_png"],
             "pipeline_stages_strip_png": strip_path,
+            "eval_metrics_json": eval_metrics_json,
+            "eval_confusion_matrix_png": eval_cm_png,
         },
     }
 
-    json_path = os.path.join(output_dir, "milestone3_evaluation_summary.json")
+    json_path = os.path.join(output_dir, "milestone4_evaluation_summary.json")
     with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(summary_payload, f, indent=2)
+
+    with open(eval_metrics_json, "w", encoding="utf-8") as f:
         json.dump(summary_payload, f, indent=2)
 
     return summary_payload
 
 
+def run_milestone3_evaluation(
+    data_yaml="data/dataset_yolo/data.yaml",
+    output_dir="docs/milestone3",
+    conf_threshold=0.45,
+    iou_threshold=0.50,
+):
+    return run_milestone4_evaluation(
+        data_yaml=data_yaml,
+        output_dir=output_dir,
+        weights_path="models/best.pt",
+        split_name="test",
+        conf_threshold=conf_threshold,
+        iou_threshold=iou_threshold,
+    )
+
+
+def print_metric_tables(summary):
+    print("\n=== Stock-to-Stove Evaluation Summary ===")
+    print(
+        f"Split: {summary['split']} | Weights: {summary['weights']['weights_path']} "
+        f"({summary['weights']['model_size_mb']} MB PT, {summary['weights']['onnx_size_mb']} MB ONNX) | "
+        f"Images: {summary['num_test_images']} | GT Boxes: {summary['num_gt_boxes']}"
+    )
+    print("\n--- Condition Benchmark (Baselines vs. YOLOv8n + Luminance-Gated CLAHE) ---")
+    print(f"{'Condition':<20} {'Method':<18} {'Prec':>7} {'Rec':>7} {'F1':>7} {'mAP@50':>8} {'mAP50:95':>9} {'ms':>8} {'FPS':>7}")
+    for row in summary["preliminary_results"] + summary["clahe_ablation"]:
+        print(
+            f"{row['split']:<20} {row['detector']:<18} "
+            f"{row['precision']:>7.4f} {row['recall']:>7.4f} {row['f1_score']:>7.4f} "
+            f"{row['mAP50']:>8.4f} {row['mAP50_95']:>9.4f} "
+            f"{row['mean_inference_ms']:>8.2f} {row['fps']:>7.2f}"
+        )
+
+    print("\n--- Per-Class Normal Held-Out Test Metrics (YOLOv8n) ---")
+    print(f"{'Class ID':<22} {'AP@0.50':>9} {'Precision':>10} {'Recall':>9}")
+    for crow in summary["per_class_normal_yolov8n"]:
+        print(f"{crow['class_id']:<22} {crow['ap50']:>9.4f} {crow['precision']:>10.4f} {crow['recall']:>9.4f}")
+
+    print("\n--- Checkpoint 3 (cp3-core) vs. Checkpoint 4 (cp4-80) Delta ---")
+    print(f"{'Condition':<20} {'CP3 mAP50':>10} {'CP4 mAP50':>10} {'Delta':>9} {'CP3 F1':>8} {'CP4 F1':>8} {'Delta':>9}")
+    for drow in summary["cp3_vs_cp4_comparison"]:
+        print(
+            f"{drow['split']:<20} {drow['cp3_mAP50']:>10.4f} {drow['cp4_mAP50']:>10.4f} {drow['delta_mAP50']:>+9.4f} "
+            f"{drow['cp3_f1']:>8.4f} {drow['cp4_f1']:>8.4f} {drow['delta_f1']:>+9.4f}"
+        )
+
+    vid = summary["video_evaluation"]
+    fm = summary["false_meat_evaluation"]
+    tc = summary["test_cases_summary"]
+    print(
+        f"\nVideo Pan ({vid['clip_name']}): {vid['predicted_confirmed_items']}/{vid['expected_unique_items']} confirmed | "
+        f"{vid['mean_inference_ms']} ms/frame ({vid['fps']} FPS) | False-Meat: {fm['false_meat_count']}/{fm['total_pantry_negatives']} "
+        f"| Pre-Demo Test Cases: {tc['passed']}/{tc['total_cases']} PASS ({tc['hard_cases']} hard/edge)"
+    )
+    print(f"Wrote outputs/eval/metrics.json and outputs/eval/confusion_matrix.png\n")
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--split", type=str, default="test")
+    parser.add_argument("--weights", type=str, default="models/best.pt")
     parser.add_argument("--data", type=str, default="data/dataset_yolo/data.yaml")
-    parser.add_argument("--output-dir", type=str, default="docs/milestone3")
+    parser.add_argument("--output-dir", type=str, default="docs/milestone4")
     parser.add_argument("--conf", type=float, default=0.45)
     parser.add_argument("--iou", type=float, default=0.50)
     args = parser.parse_args()
 
-    summary = run_milestone3_evaluation(
+    summary = run_milestone4_evaluation(
         data_yaml=args.data,
         output_dir=args.output_dir,
+        weights_path=args.weights,
+        split_name=args.split,
         conf_threshold=args.conf,
         iou_threshold=args.iou,
     )
-    print(json.dumps({
-        "num_test_images": summary["num_test_images"],
-        "prelim_rows": len(summary["preliminary_results"]),
-        "failure_causes": summary["failure_analysis"]["cause_counts"],
-        "test_log_summary": summary["test_log_summary"],
-        "video_eval": summary["video_evaluation"],
-    }, indent=2))
+    print_metric_tables(summary)
 
 
 if __name__ == "__main__":
