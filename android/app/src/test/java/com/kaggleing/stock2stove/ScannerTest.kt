@@ -322,4 +322,87 @@ class ScannerTest {
         assertEquals("pasta", state.confirmedInventory[0].class_id)
         assertEquals(1, state.confirmedInventory[0].count)
     }
+
+    @Test
+    fun testDefaultDetectorModeIsGeminiVision() {
+        val testDispatcher = StandardTestDispatcher()
+        val viewModel = ScannerViewModel(coroutineDispatcher = testDispatcher)
+        assertEquals(DetectorDefenseMode.GEMINI_VISION, viewModel.uiState.value.selectedMode)
+    }
+
+    @Test
+    fun testRetryScanPreservesConfirmedInventoryAndMergesNewPass() {
+        val testDispatcher = StandardTestDispatcher()
+        val viewModel = ScannerViewModel(coroutineDispatcher = testDispatcher)
+
+        val passOneResponse = ScanResponse(
+            frame_id = 1L,
+            detector_mode = "gemini_vision",
+            inference_ms = 240.0f,
+            fps = 4.2f,
+            detections = listOf(
+                DetectionItem(
+                    class_id = "pasta_noodles",
+                    display_name = "Spaghetti",
+                    confidence = 0.91f,
+                    temporally_confirmed = true
+                )
+            ),
+            confirmed_inventory = listOf(
+                ConfirmedItem(
+                    class_id = "pasta_noodles",
+                    display_name = "Spaghetti",
+                    count = 1,
+                    max_conf = 0.91f
+                )
+            )
+        )
+        viewModel.handleScanResponse(passOneResponse)
+        viewModel.triggerComplete()
+        assertTrue(viewModel.uiState.value.isComplete)
+        assertEquals(1, viewModel.uiState.value.confirmedInventory.size)
+
+        viewModel.retryScan()
+        assertFalse(viewModel.uiState.value.isComplete)
+        assertTrue(viewModel.uiState.value.isScanning)
+        assertEquals(0.0f, viewModel.uiState.value.progressSec, 0.01f)
+        assertTrue(viewModel.uiState.value.detections.isEmpty())
+        assertEquals(1, viewModel.uiState.value.confirmedInventory.size)
+        assertEquals("pasta_noodles", viewModel.uiState.value.confirmedInventory[0].class_id)
+
+        val passTwoResponse = ScanResponse(
+            frame_id = 1L,
+            detector_mode = "gemini_vision",
+            inference_ms = 210.0f,
+            fps = 4.7f,
+            detections = listOf(
+                DetectionItem(
+                    class_id = "eggs",
+                    display_name = "Eggs",
+                    confidence = 0.95f,
+                    temporally_confirmed = true
+                )
+            ),
+            confirmed_inventory = listOf(
+                ConfirmedItem(
+                    class_id = "eggs",
+                    display_name = "Eggs",
+                    count = 6,
+                    max_conf = 0.95f
+                )
+            )
+        )
+        viewModel.handleScanResponse(passTwoResponse)
+        val merged = viewModel.uiState.value.confirmedInventory
+        assertEquals(2, merged.size)
+        assertEquals("pasta_noodles", merged[0].class_id)
+        assertEquals("eggs", merged[1].class_id)
+
+        viewModel.removeConfirmedItem("pasta_noodles")
+        assertEquals(1, viewModel.uiState.value.confirmedInventory.size)
+        assertEquals("eggs", viewModel.uiState.value.confirmedInventory[0].class_id)
+
+        viewModel.clearInventory()
+        assertTrue(viewModel.uiState.value.confirmedInventory.isEmpty())
+    }
 }

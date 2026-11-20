@@ -55,7 +55,7 @@ from src.server.session_manager import (
 
 def execute_single_frame_pipeline(
     bgr_image,
-    detector_mode="yolov8",
+    detector_mode="gemini_vision",
     enable_clahe=True,
     conf_threshold=DEFAULT_CONF_THRESHOLD,
     session_id=None,
@@ -348,13 +348,13 @@ async def handle_scan_image(request: Request):
 async def handle_scan_video(request: Request):
     content_type = request.headers.get("content-type", "").lower()
     frames_bgr = []
-    detector_mode = "yolov8"
+    detector_mode = "gemini_vision"
     enable_clahe = True
     conf_threshold = DEFAULT_CONF_THRESHOLD
 
     if "multipart/form-data" in content_type:
         form = await request.form()
-        detector_mode = validate_detector_mode(form.get("detector_mode", "yolov8"))
+        detector_mode = validate_detector_mode(form.get("detector_mode", "gemini_vision"))
         enable_clahe = str(form.get("enable_clahe", "true")).lower() not in ("false", "0", "no")
         conf_threshold = float(form.get("conf_threshold", str(DEFAULT_CONF_THRESHOLD)))
         upload = form.get("file") or form.get("video")
@@ -386,7 +386,7 @@ async def handle_scan_video(request: Request):
         except Exception:
             body = {}
         if isinstance(body, dict):
-            detector_mode = validate_detector_mode(body.get("detector_mode", "yolov8"))
+            detector_mode = validate_detector_mode(body.get("detector_mode", "gemini_vision"))
             enable_clahe = bool(body.get("enable_clahe", True))
             conf_threshold = float(body.get("conf_threshold", DEFAULT_CONF_THRESHOLD))
             frames_b64 = body.get("frames_b64") or []
@@ -542,7 +542,7 @@ async def handle_ws_scan(websocket: WebSocket):
                 next_frame_id = int(session.get("frame_id", 0)) + 1
                 response_payload = execute_single_frame_pipeline(
                     bgr_frame,
-                    detector_mode=session.get("detector_mode", "yolov8"),
+                    detector_mode=session.get("detector_mode", "gemini_vision"),
                     enable_clahe=session.get("enable_clahe", True),
                     conf_threshold=session.get("conf_threshold", DEFAULT_CONF_THRESHOLD),
                     session_id=ws_session_id,

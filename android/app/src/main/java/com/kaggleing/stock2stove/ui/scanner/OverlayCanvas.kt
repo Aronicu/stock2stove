@@ -69,8 +69,13 @@ class TemporalConfirmationTracker(
     private val classHitHistory = mutableMapOf<String, MutableList<Boolean>>()
 
     fun recordFrame(detections: List<DetectionItem>) {
-        val detectedClasses = detections.map { it.class_id }.toSet()
-        val allClasses = (classHitHistory.keys + detectedClasses).toSet()
+        val detectedClasses = mutableSetOf<String>()
+        for (det in detections) {
+            detectedClasses.add(det.class_id)
+        }
+        val allClasses = mutableSetOf<String>()
+        allClasses.addAll(classHitHistory.keys)
+        allClasses.addAll(detectedClasses)
         for (cls in allClasses) {
             val list = classHitHistory.getOrPut(cls) { mutableListOf() }
             list.add(cls in detectedClasses)
@@ -81,7 +86,14 @@ class TemporalConfirmationTracker(
     }
 
     fun getHitCount(classId: String): Int {
-        return classHitHistory[classId]?.count { it } ?: 0
+        val history = classHitHistory[classId] ?: return 0
+        var hits = 0
+        for (item in history) {
+            if (item) {
+                hits++
+            }
+        }
+        return hits
     }
 
     fun isConfirmed(classId: String): Boolean {
@@ -91,7 +103,12 @@ class TemporalConfirmationTracker(
     fun calculateConfirmedTally(): Map<String, Int> {
         val tally = mutableMapOf<String, Int>()
         for ((cls, history) in classHitHistory) {
-            val hits = history.count { it }
+            var hits = 0
+            for (item in history) {
+                if (item) {
+                    hits++
+                }
+            }
             if (hits >= thresholdHits) {
                 tally[cls] = hits
             }
@@ -116,49 +133,63 @@ fun OverlayCanvas(
         val canvasHeight = size.height
 
         val strokeWidth = 3.dp.toPx()
-        val textPaint = Paint().apply {
-            color = android.graphics.Color.WHITE
-            textSize = 12.dp.toPx()
-            typeface = Typeface.DEFAULT_BOLD
-            isAntiAlias = true
-        }
+        val boxCornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx())
+        val textPaint = Paint()
+        textPaint.color = android.graphics.Color.WHITE
+        textPaint.textSize = 12.dp.toPx()
+        textPaint.typeface = Typeface.DEFAULT_BOLD
+        textPaint.isAntiAlias = true
 
         for (detection in detections) {
-            val color = OverlayMath.getConfirmationColor(detection.temporally_confirmed)
+            val color = if (OverlayMath.isTemporallyConfirmed(detection.temporally_confirmed)) {
+                confirmedColor
+            } else {
+                trackingColor
+            }
             val labelText = OverlayMath.formatLabelText(detection.display_name, detection.confidence)
 
             if (detection.polygon_norm != null && detection.polygon_norm.size == 4) {
                 val pts = OverlayMath.mapNormalizedPolygon(detection.polygon_norm, canvasWidth, canvasHeight)
                 if (pts.size == 4) {
-                    val path = Path().apply {
-                        moveTo(pts[0].x, pts[0].y)
-                        lineTo(pts[1].x, pts[1].y)
-                        lineTo(pts[2].x, pts[2].y)
-                        lineTo(pts[3].x, pts[3].y)
-                        close()
-                    }
+                    val path = Path()
+                    path.moveTo(pts[0].x, pts[0].y)
+                    path.lineTo(pts[1].x, pts[1].y)
+                    path.lineTo(pts[2].x, pts[2].y)
+                    path.lineTo(pts[3].x, pts[3].y)
+                    path.close()
                     drawPath(path = path, color = color, style = Stroke(width = strokeWidth))
-                    drawPath(path = path, color = color.copy(alpha = 0.15f), style = Fill)
+                    drawPath(path = path, color = color.copy(alpha = 0.14f), style = Fill)
 
-                    val minX = pts.minOf { it.x }
-                    val minY = pts.minOf { it.y }
+                    var minX = pts[0].x
+                    var minY = pts[0].y
+                    for (pt in pts) {
+                        if (pt.x < minX) minX = pt.x
+                        if (pt.y < minY) minY = pt.y
+                    }
                     val textBounds = android.graphics.Rect()
                     textPaint.getTextBounds(labelText, 0, labelText.length, textBounds)
-                    val pillWidth = textBounds.width().toFloat() + 24f
+                    val pillWidth = textBounds.width().toFloat() + 26f
                     val pillHeight = textBounds.height().toFloat() + 16f
                     val pillLeft = minX.coerceIn(0f, (canvasWidth - pillWidth).coerceAtLeast(0f))
                     val pillTop = (minY - pillHeight - 6f).coerceIn(0f, (canvasHeight - pillHeight).coerceAtLeast(0f))
 
                     drawRoundRect(
+                        color = Color(0xCC111915),
+                        topLeft = Offset(pillLeft, pillTop),
+                        size = Size(pillWidth, pillHeight),
+                        cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                    )
+                    drawRoundRect(
                         color = color,
                         topLeft = Offset(pillLeft, pillTop),
                         size = Size(pillWidth, pillHeight),
-                        cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                        cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                        style = Stroke(width = 1.5.dp.toPx())
                     )
 
                     drawContext.canvas.nativeCanvas.drawText(
                         labelText,
-                        pillLeft + 12f,
+                        pillLeft + 13f,
                         pillTop + pillHeight - 6f,
                         textPaint
                     )
@@ -166,36 +197,45 @@ fun OverlayCanvas(
             } else if (detection.bbox_norm.size >= 4) {
                 val rect = OverlayMath.mapNormalizedBbox(detection.bbox_norm, canvasWidth, canvasHeight)
                 if (rect.width > 0f && rect.height > 0f) {
-                    drawRect(
+                    drawRoundRect(
                         color = color,
                         topLeft = Offset(rect.left, rect.top),
                         size = Size(rect.width, rect.height),
+                        cornerRadius = boxCornerRadius,
                         style = Stroke(width = strokeWidth)
                     )
-                    drawRect(
-                        color = color.copy(alpha = 0.15f),
+                    drawRoundRect(
+                        color = color.copy(alpha = 0.12f),
                         topLeft = Offset(rect.left, rect.top),
                         size = Size(rect.width, rect.height),
+                        cornerRadius = boxCornerRadius,
                         style = Fill
                     )
 
                     val textBounds = android.graphics.Rect()
                     textPaint.getTextBounds(labelText, 0, labelText.length, textBounds)
-                    val pillWidth = textBounds.width().toFloat() + 24f
+                    val pillWidth = textBounds.width().toFloat() + 26f
                     val pillHeight = textBounds.height().toFloat() + 16f
                     val pillLeft = rect.left.coerceIn(0f, (canvasWidth - pillWidth).coerceAtLeast(0f))
                     val pillTop = (rect.top - pillHeight - 6f).coerceIn(0f, (canvasHeight - pillHeight).coerceAtLeast(0f))
 
                     drawRoundRect(
+                        color = Color(0xCC111915),
+                        topLeft = Offset(pillLeft, pillTop),
+                        size = Size(pillWidth, pillHeight),
+                        cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                    )
+                    drawRoundRect(
                         color = color,
                         topLeft = Offset(pillLeft, pillTop),
                         size = Size(pillWidth, pillHeight),
-                        cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                        cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                        style = Stroke(width = 1.5.dp.toPx())
                     )
 
                     drawContext.canvas.nativeCanvas.drawText(
                         labelText,
-                        pillLeft + 12f,
+                        pillLeft + 13f,
                         pillTop + pillHeight - 6f,
                         textPaint
                     )

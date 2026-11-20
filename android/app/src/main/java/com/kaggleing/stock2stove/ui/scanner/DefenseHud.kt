@@ -1,6 +1,7 @@
 package com.kaggleing.stock2stove.ui.scanner
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -66,8 +66,9 @@ fun DefenseHud(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0xDD121212), RoundedCornerShape(12.dp))
-            .padding(10.dp),
+            .background(Color(0xE8131A17), RoundedCornerShape(16.dp))
+            .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(16.dp))
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
@@ -77,7 +78,7 @@ fun DefenseHud(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            for (mode in DetectorDefenseMode.values()) {
+            for (mode in DetectorDefenseMode.entries) {
                 val isSelected = mode == selectedMode
                 FilterChip(
                     selected = isSelected,
@@ -90,10 +91,10 @@ fun DefenseHud(
                         )
                     },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        containerColor = Color(0xFF2C2C2C),
-                        labelColor = Color.White
+                        selectedContainerColor = Color(0xFF228B5B),
+                        selectedLabelColor = Color.White,
+                        containerColor = Color(0xFF232E29),
+                        labelColor = Color(0xFFD1D5DB)
                     )
                 )
             }
@@ -120,9 +121,9 @@ fun DefenseHud(
                     modifier = Modifier.size(width = 44.dp, height = 24.dp),
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = Color(0xFF228B5B),
                         uncheckedThumbColor = Color.LightGray,
-                        uncheckedTrackColor = Color.DarkGray
+                        uncheckedTrackColor = Color(0xFF374151)
                     )
                 )
             }
@@ -130,7 +131,9 @@ fun DefenseHud(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f, fill = false).padding(start = 12.dp)
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .padding(start = 12.dp)
             ) {
                 Text(
                     text = "Conf: ${(confThreshold * 100).toInt()}%",
@@ -144,9 +147,9 @@ fun DefenseHud(
                     steps = 7,
                     modifier = Modifier.fillMaxWidth(),
                     colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = Color.DarkGray
+                        thumbColor = Color(0xFF34D399),
+                        activeTrackColor = Color(0xFF228B5B),
+                        inactiveTrackColor = Color(0xFF374151)
                     )
                 )
             }
@@ -156,33 +159,33 @@ fun DefenseHud(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(telemetryScrollState),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TelemetryBadge(
                 label = "FPS",
                 value = String.format(Locale.US, "%.1f", fps),
-                color = if (fps >= 5f) Color(0xFF28C850) else Color(0xFFFFB300)
+                color = if (fps >= 5f) Color(0xFF34D399) else Color(0xFFFBBF24)
             )
             TelemetryBadge(
                 label = "Latency",
                 value = String.format(Locale.US, "%.1f ms", inferenceMs),
-                color = if (inferenceMs < 200f) Color(0xFF28C850) else Color(0xFFFFB300)
+                color = if (inferenceMs < 200f) Color(0xFF34D399) else Color(0xFFFBBF24)
             )
             TelemetryBadge(
                 label = "Edge",
                 value = String.format(Locale.US, "%.1f%%", effectiveEdgeDensity),
-                color = Color.LightGray
+                color = Color(0xFFD1D5DB)
             )
             TelemetryBadge(
                 label = "Keypoints",
                 value = effectiveKeypoints.toString(),
-                color = Color.LightGray
+                color = Color(0xFFD1D5DB)
             )
             TelemetryBadge(
                 label = "Inliers",
                 value = effectiveInliers.toString(),
-                color = if (effectiveInliers >= 10) Color(0xFF28C850) else Color(0xFFFF8888)
+                color = if (effectiveInliers >= 10) Color(0xFF34D399) else Color(0xFFFCA5A5)
             )
         }
     }
@@ -196,15 +199,15 @@ fun TelemetryBadge(
 ) {
     Row(
         modifier = Modifier
-            .background(Color(0xFF222222), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            .background(Color(0xFF1F2924), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = "$label:",
             fontSize = 11.sp,
-            color = Color.Gray,
+            color = Color(0xFF9CA3AF),
             fontWeight = FontWeight.Medium
         )
         Text(

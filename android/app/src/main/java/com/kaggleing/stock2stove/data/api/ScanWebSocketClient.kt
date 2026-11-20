@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -50,6 +53,43 @@ class ScanWebSocketClient(
         listeners.remove(listener)
     }
 
+    private fun handleIncomingMessage(
+        text: String,
+        onMessage: (ScanResponse) -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        try {
+            val element = NetworkClientProvider.json.parseToJsonElement(text)
+            if (element is JsonObject) {
+                val statusVal = element["status"]?.jsonPrimitive?.contentOrNull
+                if (statusVal == "config_updated") {
+                    return
+                }
+                val errorVal = element["error"]?.jsonPrimitive?.contentOrNull
+                if (!errorVal.isNullOrBlank()) {
+                    val err = IllegalStateException(errorVal)
+                    onError(err)
+                    for (l in listeners) {
+                        l.onError(err)
+                    }
+                    return
+                }
+            }
+            val parsed = NetworkClientProvider.json.decodeFromString<ScanResponse>(text)
+            _lastResponse.value = parsed
+            _responseFlow.tryEmit(parsed)
+            onMessage(parsed)
+            for (l in listeners) {
+                l.onMessage(parsed)
+            }
+        } catch (t: Throwable) {
+            onError(t)
+            for (l in listeners) {
+                l.onError(t)
+            }
+        }
+    }
+
     fun connect(
         wsUrl: String,
         onConnected: () -> Unit = {},
@@ -75,38 +115,11 @@ class ScanWebSocketClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                try {
-                    val parsed = NetworkClientProvider.json.decodeFromString<ScanResponse>(text)
-                    _lastResponse.value = parsed
-                    _responseFlow.tryEmit(parsed)
-                    onMessage(parsed)
-                    for (l in listeners) {
-                        l.onMessage(parsed)
-                    }
-                } catch (t: Throwable) {
-                    onError(t)
-                    for (l in listeners) {
-                        l.onError(t)
-                    }
-                }
+                handleIncomingMessage(text, onMessage, onError)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                try {
-                    val text = bytes.utf8()
-                    val parsed = NetworkClientProvider.json.decodeFromString<ScanResponse>(text)
-                    _lastResponse.value = parsed
-                    _responseFlow.tryEmit(parsed)
-                    onMessage(parsed)
-                    for (l in listeners) {
-                        l.onMessage(parsed)
-                    }
-                } catch (t: Throwable) {
-                    onError(t)
-                    for (l in listeners) {
-                        l.onError(t)
-                    }
-                }
+                handleIncomingMessage(bytes.utf8(), onMessage, onError)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -167,7 +180,7 @@ class ScanWebSocketClient(
 
     fun resetSession(
         sessionId: String = "default",
-        detectorMode: String = "yolov8",
+        detectorMode: String = "gemini_vision",
         enableClahe: Boolean = true,
         confThreshold: Float = 0.5f
     ): Boolean {

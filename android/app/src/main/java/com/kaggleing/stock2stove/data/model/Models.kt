@@ -13,6 +13,13 @@ data class HealthResponse(
 )
 
 @Serializable
+data class GeminiStatus(
+    val api_key_configured: Boolean = false,
+    val vision_model: String = "",
+    val cache_entries: Int = 0
+)
+
+@Serializable
 data class ModelStatus(
     val ultralytics_installed: Boolean = false,
     val fine_tuned_pt_available: Boolean = false,
@@ -22,7 +29,8 @@ data class ModelStatus(
     val yolov8n_loaded: Boolean = false,
     val orb_ready: Boolean = false,
     val sift_ready: Boolean = false,
-    val weights_path: String = ""
+    val weights_path: String = "",
+    val gemini_status: GeminiStatus = GeminiStatus()
 )
 
 @Serializable
@@ -53,7 +61,7 @@ data class ClassInfo(
 @Serializable
 data class ScanFrameRequest(
     val frame_id: Long = 0L,
-    val detector_mode: String = "yolov8",
+    val detector_mode: String = "gemini_vision",
     val enable_clahe: Boolean = true,
     val conf_threshold: Float = 0.5f,
     val image_b64: String? = null,
@@ -64,7 +72,7 @@ data class ScanFrameRequest(
 @Serializable
 data class ScanResponse(
     val frame_id: Long = 0L,
-    val detector_mode: String = "yolov8",
+    val detector_mode: String = "gemini_vision",
     val inference_ms: Float = 0.0f,
     val fps: Float = 0.0f,
     val diagnostics: DiagnosticsData = DiagnosticsData(),

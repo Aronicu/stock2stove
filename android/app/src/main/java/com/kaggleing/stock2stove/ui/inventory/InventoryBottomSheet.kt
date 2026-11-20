@@ -1,5 +1,6 @@
 package com.kaggleing.stock2stove.ui.inventory
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,14 +16,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Kitchen
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -63,15 +65,19 @@ import com.kaggleing.stock2stove.ui.scanner.CameraFrameProcessor
 fun InventoryBottomSheet(
     onDismiss: () -> Unit,
     onGenerateRecipes: (List<InventoryItemRequest>) -> Unit,
+    onScanMore: () -> Unit = {},
+    onClearAll: () -> Unit = {},
     viewModel: InventoryViewModel = viewModel()
 ) {
     val items by viewModel.inventory.collectAsState()
     val showAddDialog by viewModel.showAddDialog.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showClearConfirm by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
         InventorySheetContent(
             items = items,
@@ -79,11 +85,39 @@ fun InventoryBottomSheet(
             onDecrement = { viewModel.decrementCount(it) },
             onRemove = { viewModel.removeItem(it) },
             onAddClick = { viewModel.openAddDialog() },
+            onClearAllClick = { showClearConfirm = true },
+            onScanMore = onScanMore,
             onGenerateRecipes = {
                 val requests = viewModel.toItemRequests()
                 onGenerateRecipes(requests)
             },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Clear All Items?") },
+            text = {
+                Text("This will remove all ${items.size} items from your scanned inventory.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearConfirm = false
+                        viewModel.clearInventory()
+                        onClearAll()
+                    }
+                ) {
+                    Text("Clear All", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text("Keep Items")
+                }
+            }
         )
     }
 
@@ -105,6 +139,8 @@ fun InventorySheetContent(
     onDecrement: (String) -> Unit,
     onRemove: (String) -> Unit,
     onAddClick: () -> Unit,
+    onClearAllClick: () -> Unit = {},
+    onScanMore: () -> Unit = {},
     onGenerateRecipes: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -112,37 +148,47 @@ fun InventorySheetContent(
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Verified Inventory",
+                    text = "Verified Food Basket",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Review and adjust scanned pantry/fridge items",
+                    text = "Adjust quantities or scan more before cooking",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            OutlinedButton(
-                onClick = onAddClick,
-                shape = RoundedCornerShape(8.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Add Item",
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Add Item")
+                if (items.isNotEmpty()) {
+                    TextButton(onClick = onClearAllClick) {
+                        Text("Clear", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onAddClick,
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Item",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add")
+                }
             }
         }
 
@@ -150,11 +196,11 @@ fun InventorySheetContent(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 24.dp),
+                    .padding(vertical = 18.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -164,12 +210,12 @@ fun InventorySheetContent(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "No Items in Inventory",
+                        text = "No Items in Basket",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Scan pantry or refrigerator items, or tap '+ Add Item' to add manually.",
+                        text = "Scan your food or tap '+ Add' to include ingredients manually.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -179,12 +225,13 @@ fun InventorySheetContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 380.dp)
+                    .heightIn(max = 360.dp)
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 for (item in items) {
                     val unified = UnifiedItemClass.normalize(item.class_id)
+                    val displayName = item.display_name.ifBlank { unified.displayName }
                     val cropBitmap = remember(item.crop_jpeg_b64) {
                         CameraFrameProcessor.decodeBase64Bitmap(item.crop_jpeg_b64)
                     }
@@ -193,60 +240,58 @@ fun InventorySheetContent(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surface
                         ),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(14.dp),
                         border = CardDefaults.outlinedCardBorder()
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (cropBitmap != null) {
                                 Image(
                                     bitmap = cropBitmap.asImageBitmap(),
-                                    contentDescription = item.display_name.ifBlank { unified.displayName },
+                                    contentDescription = displayName,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .size(52.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .size(50.dp)
+                                        .clip(RoundedCornerShape(10.dp))
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Kitchen,
+                                        contentDescription = displayName,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                             }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
                             Column(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text(
-                                    text = item.display_name.ifBlank { unified.displayName },
+                                    text = displayName,
                                     style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.SemiBold
                                 )
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .background(
-                                                MaterialTheme.colorScheme.primaryContainer,
-                                                RoundedCornerShape(4.dp)
-                                            )
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = unified.defaultStorageZone.displayName,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                    if (item.max_conf > 0.0f) {
-                                        Text(
-                                            text = "${(item.max_conf * 100).toInt()}% conf",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.outline
-                                        )
-                                    }
+                                if (item.max_conf > 0.0f) {
+                                    Text(
+                                        text = "${(item.max_conf * 100).toInt()}% confidence",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
                                 }
                             }
 
@@ -269,7 +314,7 @@ fun InventorySheetContent(
                                     text = "${item.count}",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp)
                                 )
 
                                 OutlinedIconButton(
@@ -302,24 +347,46 @@ fun InventorySheetContent(
         }
 
         val totalCount = items.sumOf { it.count }
-        Button(
-            onClick = onGenerateRecipes,
-            enabled = items.isNotEmpty(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            shape = RoundedCornerShape(10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Restaurant,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (totalCount > 0) "Generate Recipes ($totalCount items)" else "Generate Recipes",
-                style = MaterialTheme.typography.titleMedium
-            )
+            OutlinedButton(
+                onClick = onScanMore,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AddAPhoto,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Scan More")
+            }
+
+            Button(
+                onClick = onGenerateRecipes,
+                enabled = items.isNotEmpty(),
+                modifier = Modifier
+                    .weight(1.3f)
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (totalCount > 0) "Recipes ($totalCount)" else "Generate Recipes",
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
         }
         Spacer(modifier = Modifier.height(16.dp))
     }
@@ -338,7 +405,7 @@ fun AddItemDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Add Inventory Item",
+                text = "Add Food Item",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -349,7 +416,7 @@ fun AddItemDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Select Unified Item Category:",
+                    text = "Select Food Category:",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -366,9 +433,9 @@ fun AddItemDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
                                     else MaterialTheme.colorScheme.surface
                                 )
                                 .clickable { selectedClass = entry }
@@ -380,18 +447,11 @@ fun AddItemDialog(
                                 onClick = { selectedClass = entry }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = entry.displayName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                                )
-                                Text(
-                                    text = entry.defaultStorageZone.displayName,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
+                            Text(
+                                text = entry.displayName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                            )
                         }
                     }
                 }

@@ -1,5 +1,6 @@
 package com.kaggleing.stock2stove.ui.recipes
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,7 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Kitchen
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
@@ -38,7 +39,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
@@ -63,16 +66,18 @@ import com.kaggleing.stock2stove.data.model.RecipeGenerateResponse
 @Composable
 fun RecipeScreen(
     viewModel: RecipeViewModel = viewModel(),
+    onScanMore: () -> Unit = {},
     onNavigateBack: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Zero-Waste Recipes",
+                        text = "Chef Recipes",
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -106,28 +111,31 @@ fun RecipeScreen(
             when (val state = uiState) {
                 is RecipeUiState.Idle -> {
                     EmptyRecipeState(
+                        onScanMore = onScanMore,
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
 
                 is RecipeUiState.Loading -> {
                     Column(
-                        modifier = Modifier.align(Alignment.Center),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(48.dp),
+                            modifier = Modifier.size(52.dp),
                             color = MaterialTheme.colorScheme.primary,
                             strokeWidth = 4.dp
                         )
                         Text(
-                            text = "Synthesizing zero-waste recipes...",
+                            text = "Generating recipes from your food...",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Matching verified pantry & fridge items with LLM",
+                            text = "Sending your scanned ingredients to the LLM chef",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -143,7 +151,7 @@ fun RecipeScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer
                         ),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(20.dp)
                     ) {
                         Column(
                             modifier = Modifier.padding(20.dp),
@@ -164,7 +172,8 @@ fun RecipeScreen(
                             if (state.canRetry) {
                                 Button(
                                     onClick = { viewModel.retry() },
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
                                 ) {
                                     Text("Retry")
                                 }
@@ -179,7 +188,8 @@ fun RecipeScreen(
                         checkedSteps = state.checkedSteps,
                         onToggleStep = { recipeId, stepIdx ->
                             viewModel.toggleStep(recipeId, stepIdx)
-                        }
+                        },
+                        onScanMore = onScanMore
                     )
                 }
             }
@@ -188,7 +198,10 @@ fun RecipeScreen(
 }
 
 @Composable
-fun EmptyRecipeState(modifier: Modifier = Modifier) {
+fun EmptyRecipeState(
+    onScanMore: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     Column(
         modifier = modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -198,18 +211,30 @@ fun EmptyRecipeState(modifier: Modifier = Modifier) {
             imageVector = Icons.Default.Restaurant,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.outline
+            tint = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "No Recipes Generated",
+            text = "No Recipes Yet",
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Scan shelf or refrigerator items and tap 'Generate Recipes' from inventory verification.",
+            text = "Scan your food and tap 'Generate Recipes' once you're done scanning.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        OutlinedButton(
+            onClick = onScanMore,
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.AddAPhoto,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Go to Scanner")
+        }
     }
 }
 
@@ -217,7 +242,8 @@ fun EmptyRecipeState(modifier: Modifier = Modifier) {
 fun RecipeSuccessContent(
     response: RecipeGenerateResponse,
     checkedSteps: Map<String, Set<Int>>,
-    onToggleStep: (String, Int) -> Unit
+    onToggleStep: (String, Int) -> Unit,
+    onScanMore: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
 
@@ -245,7 +271,24 @@ fun RecipeSuccessContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        OutlinedButton(
+            onClick = onScanMore,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.AddAPhoto,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Scan More Ingredients")
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
     }
 }
 
@@ -255,13 +298,13 @@ fun LlmTelemetryBadge(response: RecipeGenerateResponse) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            containerColor = MaterialTheme.colorScheme.surface
         ),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         border = CardDefaults.outlinedCardBorder()
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
@@ -277,7 +320,7 @@ fun LlmTelemetryBadge(response: RecipeGenerateResponse) {
                         modifier = Modifier
                             .background(
                                 MaterialTheme.colorScheme.primary,
-                                RoundedCornerShape(6.dp)
+                                RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -292,8 +335,8 @@ fun LlmTelemetryBadge(response: RecipeGenerateResponse) {
                     Box(
                         modifier = Modifier
                             .background(
-                                if (response.cached) Color(0xFF2E7D32) else Color(0xFF1565C0),
-                                RoundedCornerShape(6.dp)
+                                if (response.cached) Color(0xFF1B5E3F) else Color(0xFFD95D24),
+                                RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -310,7 +353,7 @@ fun LlmTelemetryBadge(response: RecipeGenerateResponse) {
                     text = "${response.latency_ms.toInt()} ms",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -331,15 +374,15 @@ fun LlmTelemetryBadge(response: RecipeGenerateResponse) {
                         Box(
                             modifier = Modifier
                                 .background(
-                                    MaterialTheme.colorScheme.secondaryContainer,
-                                    RoundedCornerShape(4.dp)
+                                    MaterialTheme.colorScheme.primaryContainer,
+                                    RoundedCornerShape(6.dp)
                                 )
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = item,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
@@ -361,11 +404,12 @@ fun RecipeCardItem(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = CardDefaults.outlinedCardBorder()
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
@@ -406,7 +450,7 @@ fun RecipeCardItem(
                         )
                     },
                     colors = SuggestionChipDefaults.suggestionChipColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
                         labelColor = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                 )
@@ -436,7 +480,7 @@ fun RecipeCardItem(
                         text = "Matched From Your Stock",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF2E7D32)
+                        color = MaterialTheme.colorScheme.primary
                     )
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -446,14 +490,14 @@ fun RecipeCardItem(
                         for (ing in recipe.matched_ingredients) {
                             Box(
                                 modifier = Modifier
-                                    .background(Color(0xFFE8F5E9), RoundedCornerShape(6.dp))
-                                    .border(1.dp, Color(0xFFA5D6A7), RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFD7F2E3), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0xFF86EFAC), RoundedCornerShape(8.dp))
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Text(
                                     text = ing,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF1B5E20),
+                                    color = Color(0xFF062919),
                                     fontWeight = FontWeight.Medium
                                 )
                             }
@@ -468,7 +512,7 @@ fun RecipeCardItem(
                         text = "Pantry Staples Needed",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.outline
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -480,7 +524,7 @@ fun RecipeCardItem(
                                 modifier = Modifier
                                     .background(
                                         MaterialTheme.colorScheme.surfaceVariant,
-                                        RoundedCornerShape(6.dp)
+                                        RoundedCornerShape(8.dp)
                                     )
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
@@ -496,6 +540,7 @@ fun RecipeCardItem(
             }
 
             if (recipe.steps.isNotEmpty()) {
+                val progressFraction = checkedSteps.size.toFloat() / recipe.steps.size.toFloat()
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -515,14 +560,24 @@ fun RecipeCardItem(
                         )
                     }
 
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+
                     for ((idx, step) in recipe.steps.withIndex()) {
                         val isChecked = checkedSteps.contains(idx)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(
-                                    if (isChecked) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    if (isChecked) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                                     else MaterialTheme.colorScheme.surface
                                 )
                                 .clickable { onToggleStep(idx) }
@@ -533,7 +588,7 @@ fun RecipeCardItem(
                                 checked = isChecked,
                                 onCheckedChange = { onToggleStep(idx) },
                                 colors = CheckboxDefaults.colors(
-                                    checkedColor = Color(0xFF2E7D32)
+                                    checkedColor = MaterialTheme.colorScheme.primary
                                 )
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -542,7 +597,7 @@ fun RecipeCardItem(
                                 style = if (isChecked) {
                                     MaterialTheme.typography.bodyMedium.copy(
                                         textDecoration = TextDecoration.LineThrough,
-                                        color = MaterialTheme.colorScheme.outline
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 } else {
                                     MaterialTheme.typography.bodyMedium
@@ -558,9 +613,9 @@ fun RecipeCardItem(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFFF1F8E9)
+                        containerColor = Color(0xFFECFDF5)
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     border = CardDefaults.outlinedCardBorder()
                 ) {
                     Row(
@@ -570,7 +625,7 @@ fun RecipeCardItem(
                     ) {
                         Box(
                             modifier = Modifier
-                                .background(Color(0xFF81C784), CircleShape)
+                                .background(Color(0xFF1B5E3F), CircleShape)
                                 .size(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -589,12 +644,12 @@ fun RecipeCardItem(
                                 text = "Zero-Waste Chef Tip",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF2E7D32)
+                                color = Color(0xFF143D2B)
                             )
                             Text(
                                 text = recipe.zero_waste_tip,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF33691E)
+                                color = Color(0xFF1B5E3F)
                             )
                         }
                     }

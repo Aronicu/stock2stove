@@ -45,6 +45,14 @@ class InventoryViewModel : ViewModel() {
         _inventory.value = merged.values.toList()
     }
 
+    fun replaceInventory(items: List<ConfirmedItem>) {
+        val copyList = mutableListOf<ConfirmedItem>()
+        for (item in items) {
+            copyList.add(item)
+        }
+        _inventory.value = copyList
+    }
+
     fun incrementCount(classId: String) {
         val targetClass = UnifiedItemClass.fromClassId(classId)
         val current = _inventory.value.toMutableList()

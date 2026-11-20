@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 data class ScannerUiState(
-    val selectedMode: DetectorDefenseMode = DetectorDefenseMode.YOLO_V8N,
+    val selectedMode: DetectorDefenseMode = DetectorDefenseMode.GEMINI_VISION,
     val claheEnabled: Boolean = true,
     val confThreshold: Float = 0.5f,
     val fps: Float = 0.0f,
@@ -41,6 +41,8 @@ data class ScannerUiState(
     val isPaused: Boolean = false,
     val isComplete: Boolean = false,
     val isConnected: Boolean = false,
+    val isAnalyzingFrame: Boolean = false,
+    val showScanMorePrompt: Boolean = false,
     val scanMode: ScanMode = ScanMode.PANTRY_SHELF,
     val activeWsUrl: String = "ws://127.0.0.1:8000/ws/scan",
     val sessionId: String = UUID.randomUUID().toString().take(8),
@@ -60,6 +62,9 @@ class ScannerViewModel(
     val tracker = TemporalConfirmationTracker()
     private var tickerJob: Job? = null
     private var lastGeminiFrameTimeMs: Long = 0L
+    private var awaitingGeminiResponse: Boolean = false
+    private var lastGeminiSentMs: Long = 0L
+    private var hasInitializedUrl: String? = null
     private val frameCacheLock = Any()
     private val recentCapturedFrames = LinkedHashMap<Long, ByteArray>()
     private val bestCropByClass = mutableMapOf<String, Pair<Float, String>>()
@@ -68,10 +73,19 @@ class ScannerViewModel(
         startCountdownTicker()
     }
 
-    fun initScan(wsUrl: String, mode: ScanMode, sessionId: String? = null) {
-        val sId = sessionId ?: UUID.randomUUID().toString().take(8)
-        _uiState.update {
-            it.copy(
+    fun initScan(
+        wsUrl: String,
+        mode: ScanMode = ScanMode.PANTRY_SHELF,
+        sessionId: String? = null,
+        clearItems: Boolean = false
+    ) {
+        if (!clearItems && hasInitializedUrl == wsUrl && webSocketClient.isConnected()) {
+            return
+        }
+        hasInitializedUrl = wsUrl
+        val sId = sessionId ?: _uiState.value.sessionId.ifBlank { UUID.randomUUID().toString().take(8) }
+        _uiState.update { state ->
+            state.copy(
                 activeWsUrl = wsUrl,
                 scanMode = mode,
                 sessionId = sId,
@@ -79,27 +93,57 @@ class ScannerViewModel(
                 isScanning = true,
                 isPaused = false,
                 isComplete = false,
+                isAnalyzingFrame = false,
+                showScanMorePrompt = false,
                 frameCount = 0L,
                 detections = emptyList(),
-                confirmedInventory = emptyList(),
+                confirmedInventory = if (clearItems) emptyList() else state.confirmedInventory,
                 errorMessage = null
             )
         }
         tracker.reset()
         lastGeminiFrameTimeMs = 0L
+        lastGeminiSentMs = 0L
+        awaitingGeminiResponse = false
         synchronized(frameCacheLock) {
             recentCapturedFrames.clear()
-            bestCropByClass.clear()
+            if (clearItems) {
+                bestCropByClass.clear()
+            }
         }
         AlphaTelemetryLogger.getDefault().logEvent("SCANNER", "INFO", "Scan session started: $sId")
         connectWebSocket(wsUrl)
+    }
+
+    fun seedInventoryIfEmpty(items: List<ConfirmedItem>) {
+        if (items.isEmpty()) {
+            return
+        }
+        if (_uiState.value.confirmedInventory.isNotEmpty()) {
+            return
+        }
+        for (item in items) {
+            recordCropForClass(item.class_id, item.max_conf, item.crop_jpeg_b64)
+        }
+        _uiState.update { state ->
+            state.copy(confirmedInventory = items)
+        }
+    }
+
+    fun syncConfirmedInventory(items: List<ConfirmedItem>) {
+        for (item in items) {
+            recordCropForClass(item.class_id, item.max_conf, item.crop_jpeg_b64)
+        }
+        _uiState.update { state ->
+            state.copy(confirmedInventory = items)
+        }
     }
 
     fun connectWebSocket(wsUrl: String) {
         webSocketClient.connect(
             wsUrl = wsUrl,
             onConnected = {
-                _uiState.update { it.copy(isConnected = true, errorMessage = null) }
+                _uiState.update { state -> state.copy(isConnected = true, errorMessage = null) }
                 val currentState = _uiState.value
                 webSocketClient.resetSession(
                     sessionId = currentState.sessionId,
@@ -112,15 +156,23 @@ class ScannerViewModel(
                 handleScanResponse(response)
             },
             onError = { error ->
-                _uiState.update {
-                    it.copy(
+                awaitingGeminiResponse = false
+                _uiState.update { state ->
+                    state.copy(
                         isConnected = false,
+                        isAnalyzingFrame = false,
                         errorMessage = error.message ?: "Connection failure"
                     )
                 }
             },
             onClosed = {
-                _uiState.update { it.copy(isConnected = false) }
+                awaitingGeminiResponse = false
+                _uiState.update { state ->
+                    state.copy(
+                        isConnected = false,
+                        isAnalyzingFrame = false
+                    )
+                }
             }
         )
     }
@@ -157,6 +209,7 @@ class ScannerViewModel(
     }
 
     fun handleScanResponse(response: ScanResponse) {
+        awaitingGeminiResponse = false
         var frameBytes: ByteArray? = null
         synchronized(frameCacheLock) {
             frameBytes = recentCapturedFrames[response.frame_id]
@@ -272,13 +325,19 @@ class ScannerViewModel(
             }
 
             val mergedInventory = mergedMap.values.toList()
+            val reachedEnd = state.progressSec >= state.totalSec
+            val completeNow = state.isComplete || reachedEnd
 
             state.copy(
                 fps = response.fps,
                 inferenceMs = response.inference_ms,
                 diagnostics = response.diagnostics,
                 detections = enrichedDetections,
-                confirmedInventory = mergedInventory
+                confirmedInventory = mergedInventory,
+                isAnalyzingFrame = false,
+                isComplete = completeNow,
+                isScanning = if (completeNow) false else state.isScanning,
+                showScanMorePrompt = state.showScanMorePrompt || completeNow
             )
         }
     }
@@ -289,12 +348,18 @@ class ScannerViewModel(
             return
         }
 
-        if (state.selectedMode == DetectorDefenseMode.GEMINI_VISION) {
+        if (state.selectedMode == DetectorDefenseMode.GEMINI_VISION || state.selectedMode == DetectorDefenseMode.HYBRID_GEMINI) {
             val nowMs = System.currentTimeMillis()
-            if (lastGeminiFrameTimeMs != 0L && (nowMs - lastGeminiFrameTimeMs) < 600L) {
+            if (awaitingGeminiResponse && (nowMs - lastGeminiSentMs) < 4500L) {
+                return
+            }
+            if (lastGeminiFrameTimeMs != 0L && (nowMs - lastGeminiFrameTimeMs) < 800L) {
                 return
             }
             lastGeminiFrameTimeMs = nowMs
+            lastGeminiSentMs = nowMs
+            awaitingGeminiResponse = true
+            _uiState.update { current -> current.copy(isAnalyzingFrame = true) }
         }
 
         val nextFrameId = state.frameCount + 1L
@@ -305,7 +370,7 @@ class ScannerViewModel(
                 recentCapturedFrames.remove(oldestKey)
             }
         }
-        _uiState.update { it.copy(frameCount = nextFrameId) }
+        _uiState.update { current -> current.copy(frameCount = nextFrameId) }
 
         val request = ScanFrameRequest(
             frame_id = nextFrameId,
@@ -321,37 +386,45 @@ class ScannerViewModel(
 
     fun setDetectorMode(mode: DetectorDefenseMode) {
         lastGeminiFrameTimeMs = 0L
-        _uiState.update { it.copy(selectedMode = mode) }
+        lastGeminiSentMs = 0L
+        awaitingGeminiResponse = false
+        _uiState.update { state -> state.copy(selectedMode = mode, isAnalyzingFrame = false) }
     }
 
     fun setClaheEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(claheEnabled = enabled) }
+        _uiState.update { state -> state.copy(claheEnabled = enabled) }
     }
 
     fun setConfThreshold(threshold: Float) {
-        _uiState.update { it.copy(confThreshold = threshold) }
+        _uiState.update { state -> state.copy(confThreshold = threshold) }
     }
 
     fun togglePause() {
-        _uiState.update { it.copy(isPaused = !it.isPaused) }
+        _uiState.update { state -> state.copy(isPaused = !state.isPaused) }
     }
 
-    fun resetScan() {
+    fun resetScan(clearItems: Boolean = false) {
         tracker.reset()
         lastGeminiFrameTimeMs = 0L
+        lastGeminiSentMs = 0L
+        awaitingGeminiResponse = false
         synchronized(frameCacheLock) {
             recentCapturedFrames.clear()
-            bestCropByClass.clear()
+            if (clearItems) {
+                bestCropByClass.clear()
+            }
         }
-        _uiState.update {
-            it.copy(
+        _uiState.update { state ->
+            state.copy(
                 progressSec = 0.0f,
                 isScanning = true,
                 isPaused = false,
                 isComplete = false,
+                isAnalyzingFrame = false,
+                showScanMorePrompt = false,
                 frameCount = 0L,
                 detections = emptyList(),
-                confirmedInventory = emptyList(),
+                confirmedInventory = if (clearItems) emptyList() else state.confirmedInventory,
                 errorMessage = null
             )
         }
@@ -364,12 +437,41 @@ class ScannerViewModel(
         )
     }
 
+    fun retryScan() {
+        resetScan(clearItems = false)
+    }
+
+    fun scanMore() {
+        resetScan(clearItems = false)
+    }
+
+    fun clearInventory() {
+        resetScan(clearItems = true)
+    }
+
+    fun removeConfirmedItem(classId: String) {
+        val targetClass = UnifiedItemClass.fromClassId(classId)
+        _uiState.update { state ->
+            val filtered = mutableListOf<ConfirmedItem>()
+            for (item in state.confirmedInventory) {
+                val exactMatch = item.class_id == classId
+                val classMatch = targetClass != null && UnifiedItemClass.fromClassId(item.class_id) == targetClass
+                if (!exactMatch && !classMatch) {
+                    filtered.add(item)
+                }
+            }
+            state.copy(confirmedInventory = filtered)
+        }
+    }
+
     fun triggerComplete() {
-        _uiState.update {
-            it.copy(
-                progressSec = it.totalSec,
+        _uiState.update { state ->
+            state.copy(
+                progressSec = state.totalSec,
                 isComplete = true,
-                isScanning = false
+                isScanning = false,
+                isAnalyzingFrame = false,
+                showScanMorePrompt = true
             )
         }
     }
@@ -381,7 +483,8 @@ class ScannerViewModel(
             state.copy(
                 progressSec = nextSec,
                 isComplete = complete,
-                isScanning = if (complete) false else state.isScanning
+                isScanning = if (complete) false else state.isScanning,
+                showScanMorePrompt = if (complete) true else state.showScanMorePrompt
             )
         }
     }
@@ -394,13 +497,33 @@ class ScannerViewModel(
                 val state = _uiState.value
                 if (state.isScanning && !state.isPaused && !state.isComplete) {
                     val nextSec = (state.progressSec + 0.1f).coerceAtMost(state.totalSec)
-                    val complete = nextSec >= state.totalSec
-                    _uiState.update {
-                        it.copy(
-                            progressSec = nextSec,
-                            isComplete = complete,
-                            isScanning = if (complete) false else it.isScanning
-                        )
+                    if (nextSec >= state.totalSec) {
+                        val waitingForFirstGemini = state.selectedMode == DetectorDefenseMode.GEMINI_VISION &&
+                            awaitingGeminiResponse &&
+                            state.confirmedInventory.isEmpty() &&
+                            (System.currentTimeMillis() - lastGeminiSentMs) < 4500L
+                        if (waitingForFirstGemini) {
+                            _uiState.update { current ->
+                                current.copy(
+                                    progressSec = current.totalSec,
+                                    isAnalyzingFrame = true
+                                )
+                            }
+                        } else {
+                            _uiState.update { current ->
+                                current.copy(
+                                    progressSec = current.totalSec,
+                                    isComplete = true,
+                                    isScanning = false,
+                                    isAnalyzingFrame = false,
+                                    showScanMorePrompt = true
+                                )
+                            }
+                        }
+                    } else {
+                        _uiState.update { current ->
+                            current.copy(progressSec = nextSec)
+                        }
                     }
                 }
             }

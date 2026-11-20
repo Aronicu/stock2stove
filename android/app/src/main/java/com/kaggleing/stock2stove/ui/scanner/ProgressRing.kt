@@ -1,10 +1,12 @@
 package com.kaggleing.stock2stove.ui.scanner
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,6 +18,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.util.Locale
 
 object ProgressRingMath {
@@ -45,15 +48,17 @@ fun ProgressRing(
     modifier: Modifier = Modifier,
     ringSize: Dp = 80.dp,
     strokeWidth: Dp = 6.dp,
-    activeColor: Color = Color(0xFF28C850),
+    activeColor: Color = Color(0xFF34D399),
     trackColor: Color = Color.White.copy(alpha = 0.25f)
 ) {
     val sweepAngle = ProgressRingMath.calculateSweepAngle(progressSec, totalSec)
-    val timerString = ProgressRingMath.formatTimerText(progressSec, totalSec)
+    val shortTimer = String.format(Locale.US, "%.0fs", progressSec.coerceIn(0.0f, totalSec))
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(ringSize)
+        modifier = modifier
+            .size(ringSize)
+            .background(Color(0xAA111915), CircleShape)
     ) {
         Canvas(modifier = Modifier.size(ringSize)) {
             val strokePx = strokeWidth.toPx()
@@ -78,8 +83,9 @@ fun ProgressRing(
             modifier = Modifier.padding(4.dp)
         ) {
             Text(
-                text = timerString,
+                text = shortTimer,
                 style = MaterialTheme.typography.labelSmall,
+                fontSize = 11.sp,
                 color = Color.White,
                 fontWeight = FontWeight.Bold
             )

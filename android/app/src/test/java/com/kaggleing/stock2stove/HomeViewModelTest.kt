@@ -2,16 +2,15 @@ package com.kaggleing.stock2stove
 
 import com.kaggleing.stock2stove.data.api.InferenceApiService
 import com.kaggleing.stock2stove.data.model.ConnectionStatus
-import com.kaggleing.stock2stove.data.model.HealthResponse
 import com.kaggleing.stock2stove.data.model.HardwareInfo
+import com.kaggleing.stock2stove.data.model.HealthResponse
 import com.kaggleing.stock2stove.data.model.ModelStatus
 import com.kaggleing.stock2stove.data.model.RecipeGenerateRequest
 import com.kaggleing.stock2stove.data.model.RecipeGenerateResponse
-import com.kaggleing.stock2stove.data.model.ScanMode
+import com.kaggleing.stock2stove.data.repository.InMemoryServerConfigStore
 import com.kaggleing.stock2stove.ui.home.HomeViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -48,22 +47,33 @@ class HomeViewModelTest {
     @Test
     fun testInitialUiState() {
         val testDispatcher = StandardTestDispatcher()
-        val viewModel = HomeViewModel(apiService = FakeInferenceApiService(), ioDispatcher = testDispatcher)
+        val store = InMemoryServerConfigStore()
+        val viewModel = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = store
+        )
         val state = viewModel.uiState.value
 
-        assertEquals("usb_adb", state.selectedPresetId)
-        assertEquals("http://127.0.0.1:8000", state.activeBaseUrl)
-        assertEquals(ScanMode.PANTRY_SHELF, state.scanMode)
+        assertEquals("custom_lan", state.selectedPresetId)
+        assertEquals("192.168.1.100", state.customHost)
+        assertEquals(8000, state.customPort)
+        assertEquals("http://192.168.1.100:8000", state.activeBaseUrl)
         assertEquals(ConnectionStatus.DISCONNECTED, state.connectionStatus)
         assertFalse(state.isCheckingHealth)
         assertNull(state.healthResponse)
         assertNull(state.errorMessage)
+        assertTrue(state.isSaved)
     }
 
     @Test
     fun testPresetSwitchingUpdatesActiveBaseUrl() {
         val testDispatcher = StandardTestDispatcher()
-        val viewModel = HomeViewModel(apiService = FakeInferenceApiService(), ioDispatcher = testDispatcher)
+        val viewModel = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = InMemoryServerConfigStore()
+        )
 
         viewModel.selectPreset("emulator")
         assertEquals("emulator", viewModel.uiState.value.selectedPresetId)
@@ -81,7 +91,11 @@ class HomeViewModelTest {
     @Test
     fun testCustomHostAndPortMutation() {
         val testDispatcher = StandardTestDispatcher()
-        val viewModel = HomeViewModel(apiService = FakeInferenceApiService(), ioDispatcher = testDispatcher)
+        val viewModel = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = InMemoryServerConfigStore()
+        )
 
         viewModel.selectPreset("custom_lan")
         viewModel.setCustomHost("192.168.1.222")
@@ -94,22 +108,56 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun testScanModeSwitching() {
+    fun testServerIpPersistenceAcrossViewModelInstances() {
         val testDispatcher = StandardTestDispatcher()
-        val viewModel = HomeViewModel(apiService = FakeInferenceApiService(), ioDispatcher = testDispatcher)
+        val sharedStore = InMemoryServerConfigStore()
+        val firstVm = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = sharedStore
+        )
 
-        viewModel.setScanMode(ScanMode.REFRIGERATOR)
-        assertEquals(ScanMode.REFRIGERATOR, viewModel.uiState.value.scanMode)
+        firstVm.setCustomHost("192.168.1.45")
+        firstVm.setCustomPort(8123)
 
-        viewModel.setScanMode(ScanMode.PANTRY_SHELF)
-        assertEquals(ScanMode.PANTRY_SHELF, viewModel.uiState.value.scanMode)
+        val secondVm = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = sharedStore
+        )
+        val restored = secondVm.uiState.value
+        assertEquals("192.168.1.45", restored.customHost)
+        assertEquals(8123, restored.customPort)
+        assertEquals("http://192.168.1.45:8123", restored.activeBaseUrl)
+        assertTrue(restored.isSaved)
+    }
+
+    @Test
+    fun testHostInputParsingWithPortAndScheme() {
+        val testDispatcher = StandardTestDispatcher()
+        val viewModel = HomeViewModel(
+            apiService = FakeInferenceApiService(),
+            ioDispatcher = testDispatcher,
+            configStore = InMemoryServerConfigStore()
+        )
+
+        viewModel.setCustomHost("http://192.168.1.50:9000/")
+        val state = viewModel.uiState.value
+        assertEquals("192.168.1.50", state.customHost)
+        assertEquals(9000, state.customPort)
+        assertEquals("9000", state.portInput)
+        assertEquals("http://192.168.1.50:9000", state.activeBaseUrl)
     }
 
     @Test
     fun testHealthCheckSuccess() = runTest {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val fakeApi = FakeInferenceApiService(shouldFail = false)
-        val viewModel = HomeViewModel(apiService = fakeApi, ioDispatcher = testDispatcher)
+        val viewModel = HomeViewModel(
+            apiService = fakeApi,
+            ioDispatcher = testDispatcher,
+            configStore = InMemoryServerConfigStore()
+        )
 
         viewModel.checkHealth()
         assertTrue(viewModel.uiState.value.isCheckingHealth)
@@ -131,7 +179,11 @@ class HomeViewModelTest {
     fun testHealthCheckFailure() = runTest {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val fakeApi = FakeInferenceApiService(shouldFail = true, failureMessage = "SocketTimeoutException")
-        val viewModel = HomeViewModel(apiService = fakeApi, ioDispatcher = testDispatcher)
+        val viewModel = HomeViewModel(
+            apiService = fakeApi,
+            ioDispatcher = testDispatcher,
+            configStore = InMemoryServerConfigStore()
+        )
 
         viewModel.checkHealth()
         testScheduler.advanceUntilIdle()

@@ -49,8 +49,8 @@ object NetworkClientProvider {
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(dynamicHostInterceptor)
         .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
     val apiService: InferenceApiService by lazy {

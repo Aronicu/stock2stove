@@ -9,7 +9,7 @@ from src.server.config import (
 
 def validate_detector_mode(mode_value):
     if not mode_value:
-        return "yolov8"
+        return "gemini_vision"
     cleaned = str(mode_value).strip().lower()
     if cleaned in SUPPORTED_DETECTOR_MODES:
         return cleaned
@@ -23,7 +23,7 @@ def validate_detector_mode(mode_value):
         return "gemini_vision"
     if cleaned in ("hybrid", "hybrid_gemini", "yolo_gemini"):
         return "hybrid_gemini"
-    return "yolov8"
+    return "gemini_vision"
 
 
 def parse_scan_frame_request(payload, session_defaults=None):
@@ -32,7 +32,7 @@ def parse_scan_frame_request(payload, session_defaults=None):
         payload = {}
 
     frame_id = int(payload.get("frame_id", defaults.get("frame_id", 0)))
-    raw_mode = payload.get("detector_mode", defaults.get("detector_mode", "yolov8"))
+    raw_mode = payload.get("detector_mode", defaults.get("detector_mode", "gemini_vision"))
     detector_mode = validate_detector_mode(raw_mode)
 
     if "enable_clahe" in payload:

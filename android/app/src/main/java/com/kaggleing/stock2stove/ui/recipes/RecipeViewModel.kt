@@ -32,9 +32,9 @@ class RecipeViewModel(
     val uiState: StateFlow<RecipeUiState> = _uiState.asStateFlow()
 
     private var lastItems: List<InventoryItemRequest> = emptyList()
-    private var lastTimeoutSec: Float = 2.5f
+    private var lastTimeoutSec: Float = 8.0f
 
-    fun generateRecipes(items: List<InventoryItemRequest>, timeoutSec: Float = 2.5f) {
+    fun generateRecipes(items: List<InventoryItemRequest>, timeoutSec: Float = 8.0f) {
         lastItems = items
         lastTimeoutSec = timeoutSec
         _uiState.value = RecipeUiState.Loading

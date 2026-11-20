@@ -19,7 +19,7 @@ def get_or_create_session(session_id="default"):
         ACTIVE_SESSIONS[sid] = {
             "session_id": sid,
             "frame_id": 0,
-            "detector_mode": "yolov8",
+            "detector_mode": "gemini_vision",
             "enable_clahe": True,
             "conf_threshold": DEFAULT_CONF_THRESHOLD,
             "tracker": create_tracker_state(

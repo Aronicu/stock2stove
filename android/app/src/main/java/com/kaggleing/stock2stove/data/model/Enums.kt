@@ -6,9 +6,9 @@ enum class ScanMode(val contextKey: String, val displayName: String) {
 }
 
 enum class DetectorDefenseMode(val wireMode: String, val displayLabel: String) {
-    YOLO_V8N("yolov8", "YOLOv8n"),
-    HYBRID_GEMINI("hybrid_gemini", "Hybrid Gemini"),
     GEMINI_VISION("gemini_vision", "Gemini Vision"),
+    HYBRID_GEMINI("hybrid_gemini", "Hybrid Gemini"),
+    YOLO_V8N("yolov8", "YOLOv8n"),
     ORB_BASELINE("orb_baseline", "ORB Baseline"),
     SIFT_BASELINE("sift_baseline", "SIFT Baseline")
 }
