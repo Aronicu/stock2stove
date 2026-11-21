@@ -29,17 +29,25 @@ def ensure_expected_plots(run_dir):
 
 def train_and_export_yolo(
     data_yaml,
-    epochs=120,
+    epochs=20,
     batch=8,
     imgsz=640,
     freeze=0,
     patience=30,
-    base_weights="yolov8s.pt",
+    base_weights="models/yolov8n_stock2stove.pt",
     run_name="stock2stove_yolov8n",
     export_onnx=True,
-    close_mosaic=15,
+    close_mosaic=5,
     seed=0,
+    lr0=0.0005,
+    mosaic=0.3,
+    mixup=0.0,
+    optimizer="AdamW",
+    degrees=18.0,
+    erasing=0.25,
+    hsv_v=0.5,
 ):
+    import torch
     from ultralytics import YOLO
 
     runs_detect_dir = Path("runs") / "detect"
@@ -49,6 +57,9 @@ def train_and_export_yolo(
     models_dir = Path("models")
     models_dir.mkdir(parents=True, exist_ok=True)
 
+    use_amp = bool(torch.cuda.is_available())
+    eff_close_mosaic = min(int(close_mosaic), max(1, int(epochs) // 3))
+
     model = YOLO(base_weights)
     train_results = model.train(
         data=str(data_yaml),
@@ -57,12 +68,19 @@ def train_and_export_yolo(
         batch=batch,
         patience=patience,
         freeze=freeze,
-        mosaic=1.0,
-        mixup=0.15,
-        hsv_v=0.4,
-        close_mosaic=close_mosaic,
+        optimizer=optimizer,
+        lr0=lr0,
+        cos_lr=True,
+        warmup_epochs=0.5,
+        mosaic=mosaic,
+        mixup=mixup,
+        degrees=degrees,
+        erasing=erasing,
+        hsv_v=hsv_v,
+        amp=use_amp,
+        close_mosaic=eff_close_mosaic,
         seed=seed,
-        project="runs/detect",
+        project=str(runs_detect_dir.resolve()),
         name=run_name,
         exist_ok=True,
         workers=2,
@@ -130,14 +148,21 @@ def train_and_export_yolo(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=str, default="data/dataset_yolo/data.yaml")
-    parser.add_argument("--epochs", type=int, default=120)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--freeze", type=int, default=0)
     parser.add_argument("--patience", type=int, default=30)
-    parser.add_argument("--close-mosaic", type=int, default=15)
+    parser.add_argument("--close-mosaic", type=int, default=5)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--weights", type=str, default="yolov8s.pt")
+    parser.add_argument("--lr0", type=float, default=0.0005)
+    parser.add_argument("--mosaic", type=float, default=0.3)
+    parser.add_argument("--mixup", type=float, default=0.0)
+    parser.add_argument("--optimizer", type=str, default="AdamW")
+    parser.add_argument("--degrees", type=float, default=18.0)
+    parser.add_argument("--erasing", type=float, default=0.25)
+    parser.add_argument("--hsv-v", type=float, default=0.5)
+    parser.add_argument("--weights", type=str, default="models/yolov8n_stock2stove.pt")
     parser.add_argument("--name", type=str, default="stock2stove_yolov8n")
     parser.add_argument("--export-onnx", action="store_true")
     args = parser.parse_args()
@@ -154,6 +179,13 @@ def main():
         export_onnx=args.export_onnx,
         close_mosaic=args.close_mosaic,
         seed=args.seed,
+        lr0=args.lr0,
+        mosaic=args.mosaic,
+        mixup=args.mixup,
+        optimizer=args.optimizer,
+        degrees=args.degrees,
+        erasing=args.erasing,
+        hsv_v=args.hsv_v,
     )
     print(f"Saved PyTorch weights: {summary['best_pt']}")
     if summary["best_onnx"]:

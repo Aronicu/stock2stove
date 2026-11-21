@@ -8,7 +8,8 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.cv.baseline_detector import ensure_reference_templates, run_baseline_detection
 from src.cv.gemini_detector import (
@@ -26,9 +27,10 @@ from src.cv.preprocess import (
 from src.cv.temporal_tracker import create_tracker_state, update_temporal_tracker
 from src.cv.yolo_detector import get_yolo_model_status, run_yolo_detection
 from src.llm_recipe import generate_structured_recipes
-from src.run import run_single_frame
+from src.run import render, run_single_frame
 from src.server.config import (
     DEFAULT_CONF_THRESHOLD,
+    FRONTEND_DIST_DIR,
     HOST,
     PORT,
     SAMPLES_DIR,
@@ -36,6 +38,10 @@ from src.server.config import (
     TARGET_IMG_SIZE,
     TEMPLATES_DIR,
     UNIFIED_CLASSES,
+    get_class_calories,
+    get_display_name,
+    is_valid_food_class,
+    normalize_class_id,
 )
 from src.server.schemas import (
     format_confirmed_inventory_item,
@@ -46,12 +52,85 @@ from src.server.schemas import (
     validate_detector_mode,
 )
 from src.server.session_manager import (
+    delete_session_item,
     get_or_create_session,
+    get_session_excluded_classes,
     record_session_frame,
     remove_session,
     reset_session,
+    restore_session_item,
     update_session_config,
 )
+
+
+def parse_excluded_classes_value(raw_value):
+    excluded = set()
+    if raw_value is None:
+        return excluded
+    if isinstance(raw_value, (list, tuple, set)):
+        for item in raw_value:
+            for sub in parse_excluded_classes_value(item):
+                excluded.add(sub)
+        return excluded
+    raw_str = str(raw_value).strip()
+    if not raw_str:
+        return excluded
+    if raw_str.startswith("["):
+        try:
+            parsed = json.loads(raw_str)
+            if isinstance(parsed, list):
+                for entry in parsed:
+                    norm = normalize_class_id(entry)
+                    if norm:
+                        excluded.add(norm)
+                return excluded
+        except Exception:
+            pass
+    for part in raw_str.split(","):
+        cleaned = part.strip()
+        if cleaned:
+            norm = normalize_class_id(cleaned)
+            if norm:
+                excluded.add(norm)
+    return excluded
+
+
+def filter_valid_detections(detections, excluded_classes=None):
+    excluded = set()
+    if excluded_classes:
+        for cls_item in excluded_classes:
+            norm = normalize_class_id(cls_item)
+            if norm:
+                excluded.add(norm)
+    kept = []
+    for det in detections:
+        raw_cls = det.get("class_id") or det.get("display_name") or ""
+        if not is_valid_food_class(raw_cls):
+            continue
+        cls_id = normalize_class_id(raw_cls)
+        if cls_id in excluded:
+            continue
+        det_copy = dict(det)
+        det_copy["class_id"] = cls_id
+        kept.append(det_copy)
+    return kept
+
+
+def build_session_item_response(status_label, session_id, cls_id, confirmed_inventory, excluded_classes):
+    formatted_inv = []
+    total_estimated_calories = 0
+    for item in confirmed_inventory:
+        formatted_item = format_confirmed_inventory_item(item)
+        formatted_inv.append(formatted_item)
+        total_estimated_calories += int(formatted_item["estimated_calories"])
+    return {
+        "status": str(status_label),
+        "session_id": str(session_id),
+        "class_id": str(cls_id),
+        "excluded_classes": list(excluded_classes),
+        "confirmed_inventory": formatted_inv,
+        "total_estimated_calories": int(total_estimated_calories),
+    }
 
 
 def execute_single_frame_pipeline(
@@ -98,7 +177,10 @@ def execute_single_frame_pipeline(
             conf_threshold=float(conf_threshold),
         )
 
-    for det in raw_dets:
+    excluded_list = get_session_excluded_classes(session_id) if session_id is not None else []
+    filtered_raw_dets = filter_valid_detections(raw_dets, excluded_classes=excluded_list)
+
+    for det in filtered_raw_dets:
         if not det.get("crop_jpeg_b64"):
             det["crop_jpeg_b64"] = crop_detection_base64_jpeg(
                 resized_bgr,
@@ -110,7 +192,7 @@ def execute_single_frame_pipeline(
         fast_confirm_conf = 0.80 if mode in ("gemini_vision", "hybrid_gemini") else None
         dets, confirmed = record_session_frame(
             session_id,
-            raw_dets,
+            filtered_raw_dets,
             conf_threshold=float(conf_threshold),
             min_hits_override=min_hits_override,
             fast_confirm_conf=fast_confirm_conf,
@@ -123,7 +205,7 @@ def execute_single_frame_pipeline(
         )
         dets, confirmed = update_temporal_tracker(
             temp_tracker,
-            raw_dets,
+            filtered_raw_dets,
             conf_threshold=float(conf_threshold),
         )
 
@@ -135,6 +217,7 @@ def execute_single_frame_pipeline(
         diagnostics=diagnostics,
         detections=dets,
         confirmed_inventory=confirmed,
+        excluded_classes=excluded_list,
     )
 
 
@@ -414,6 +497,7 @@ async def handle_scan_video(request: Request):
     frame_results = []
     keyframes = []
     final_confirmed = []
+    total_estimated_calories = 0
 
     for idx, frame in enumerate(frames_bgr):
         res = execute_single_frame_pipeline(
@@ -425,6 +509,7 @@ async def handle_scan_video(request: Request):
             frame_id=idx + 1,
         )
         final_confirmed = res["confirmed_inventory"]
+        total_estimated_calories = int(res.get("total_estimated_calories", 0))
         frame_results.append({
             "frame_id": res["frame_id"],
             "inference_ms": res["inference_ms"],
@@ -445,6 +530,7 @@ async def handle_scan_video(request: Request):
         "frames_processed": len(frames_bgr),
         "detector_mode": detector_mode,
         "confirmed_inventory": final_confirmed,
+        "total_estimated_calories": int(total_estimated_calories),
         "frame_summaries": frame_results,
         "keyframes": keyframes,
     })
@@ -477,6 +563,52 @@ async def handle_session_reset(request: Request):
     return JSONResponse({"status": "reset", "session_id": session_id})
 
 
+async def handle_session_item_delete_param(class_id: str, session_id: str = "default"):
+    cls_id = normalize_class_id(class_id)
+    if not cls_id:
+        return JSONResponse({"error": "class_id is required."}, status_code=400)
+    confirmed_inv, excluded_list = delete_session_item(session_id, cls_id)
+    return JSONResponse(
+        build_session_item_response("item_deleted", session_id, cls_id, confirmed_inv, excluded_list)
+    )
+
+
+async def handle_session_item_delete_post(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    session_id = str(body.get("session_id") or "default")
+    raw_cls = body.get("class_id") or ""
+    cls_id = normalize_class_id(raw_cls)
+    if not cls_id:
+        return JSONResponse({"error": "class_id is required."}, status_code=400)
+    confirmed_inv, excluded_list = delete_session_item(session_id, cls_id)
+    return JSONResponse(
+        build_session_item_response("item_deleted", session_id, cls_id, confirmed_inv, excluded_list)
+    )
+
+
+async def handle_session_item_restore_post(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    session_id = str(body.get("session_id") or "default")
+    raw_cls = body.get("class_id") or ""
+    cls_id = normalize_class_id(raw_cls)
+    if not cls_id:
+        return JSONResponse({"error": "class_id is required."}, status_code=400)
+    confirmed_inv, excluded_list = restore_session_item(session_id, cls_id)
+    return JSONResponse(
+        build_session_item_response("item_restored", session_id, cls_id, confirmed_inv, excluded_list)
+    )
+
+
 async def handle_ws_scan(websocket: WebSocket):
     await websocket.accept()
     ws_session_id = f"ws_{uuid.uuid4().hex[:8]}"
@@ -495,8 +627,45 @@ async def handle_ws_scan(websocket: WebSocket):
                     await websocket.send_json({"error": "Invalid JSON payload."})
                     continue
 
+                if isinstance(payload, dict):
+                    action = str(payload.get("action") or "").strip().lower()
+                    if action == "delete_item":
+                        raw_cls = payload.get("class_id") or ""
+                        cls_id = normalize_class_id(raw_cls)
+                        if not cls_id:
+                            await websocket.send_json({"error": "class_id is required for delete_item."})
+                            continue
+                        confirmed_inv, excluded_list = delete_session_item(ws_session_id, cls_id)
+                        await websocket.send_json(
+                            build_session_item_response(
+                                "item_deleted",
+                                ws_session_id,
+                                cls_id,
+                                confirmed_inv,
+                                excluded_list,
+                            )
+                        )
+                        continue
+                    if action == "restore_item":
+                        raw_cls = payload.get("class_id") or ""
+                        cls_id = normalize_class_id(raw_cls)
+                        if not cls_id:
+                            await websocket.send_json({"error": "class_id is required for restore_item."})
+                            continue
+                        confirmed_inv, excluded_list = restore_session_item(ws_session_id, cls_id)
+                        await websocket.send_json(
+                            build_session_item_response(
+                                "item_restored",
+                                ws_session_id,
+                                cls_id,
+                                confirmed_inv,
+                                excluded_list,
+                            )
+                        )
+                        continue
+
                 parsed = parse_scan_frame_request(payload, session_defaults=session)
-                if parsed["reset_session"]:
+                if parsed["reset_session"] or (isinstance(payload, dict) and str(payload.get("action") or "").strip().lower() == "reset_session"):
                     reset_session(ws_session_id)
 
                 update_session_config(
@@ -513,6 +682,7 @@ async def handle_ws_scan(websocket: WebSocket):
                         "detector_mode": session["detector_mode"],
                         "enable_clahe": session["enable_clahe"],
                         "conf_threshold": session["conf_threshold"],
+                        "excluded_classes": get_session_excluded_classes(ws_session_id),
                     })
                     continue
 
@@ -563,6 +733,8 @@ async def handle_ui_detect(request: Request):
     conf_threshold = 0.45
     bgr_image = None
     source_name = "upload"
+    excluded_set = set()
+    req_session_id = None
 
     try:
         if "multipart/form-data" in content_type:
@@ -570,6 +742,15 @@ async def handle_ui_detect(request: Request):
             detector_mode = validate_detector_mode(form.get("detector_mode", "yolov8"))
             enable_clahe = str(form.get("enable_clahe", "true")).lower() not in ("false", "0", "no")
             conf_threshold = float(form.get("conf_threshold", "0.45"))
+            req_session_id = form.get("session_id")
+            if hasattr(form, "getlist"):
+                for raw_exc in form.getlist("excluded_classes"):
+                    for item in parse_excluded_classes_value(raw_exc):
+                        excluded_set.add(item)
+            elif "excluded_classes" in form:
+                for item in parse_excluded_classes_value(form.get("excluded_classes")):
+                    excluded_set.add(item)
+
             upload = form.get("file") or form.get("image")
             if upload is not None and hasattr(upload, "read"):
                 source_name = getattr(upload, "filename", "upload") or "upload"
@@ -591,6 +772,10 @@ async def handle_ui_detect(request: Request):
             detector_mode = validate_detector_mode(body.get("detector_mode", "yolov8"))
             enable_clahe = bool(body.get("enable_clahe", True))
             conf_threshold = float(body.get("conf_threshold", 0.45))
+            req_session_id = body.get("session_id")
+            for item in parse_excluded_classes_value(body.get("excluded_classes")):
+                excluded_set.add(item)
+
             b64_str = body.get("image_b64") or body.get("image")
             if b64_str:
                 bgr_image = decode_base64_image(b64_str)
@@ -603,6 +788,10 @@ async def handle_ui_detect(request: Request):
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
+    if req_session_id is not None and str(req_session_id).strip():
+        for cls_val in get_session_excluded_classes(str(req_session_id).strip()):
+            excluded_set.add(cls_val)
+
     if bgr_image is None or bgr_image.size == 0:
         return JSONResponse({"error": "No valid image provided."}, status_code=400)
 
@@ -613,15 +802,77 @@ async def handle_ui_detect(request: Request):
         conf_threshold=conf_threshold,
         source_name=source_name,
     )
-    rendered = res["rendered"]
     post = res["postprocessed"]
+    filtered_dets = filter_valid_detections(post.get("detections", []), excluded_classes=excluded_set)
+
+    counts_by_class = {}
+    grouped = {}
+    for det in filtered_dets:
+        cls_id = det["class_id"]
+        conf_val = float(det.get("confidence", 0.0))
+        crop_b64 = det.get("crop_jpeg_b64")
+        if not crop_b64:
+            crop_b64 = crop_detection_base64_jpeg(bgr_image, det.get("bbox_norm"))
+            det["crop_jpeg_b64"] = crop_b64
+        counts_by_class[cls_id] = counts_by_class.get(cls_id, 0) + 1
+        if cls_id not in grouped:
+            grouped[cls_id] = {
+                "class_id": cls_id,
+                "display_name": det.get("display_name") or get_display_name(cls_id),
+                "count": 1,
+                "max_conf": conf_val,
+                "crop_jpeg_b64": crop_b64,
+            }
+        else:
+            grouped[cls_id]["count"] += 1
+            if conf_val > grouped[cls_id]["max_conf"]:
+                grouped[cls_id]["max_conf"] = conf_val
+                if crop_b64:
+                    grouped[cls_id]["crop_jpeg_b64"] = crop_b64
+            elif not grouped[cls_id].get("crop_jpeg_b64") and crop_b64:
+                grouped[cls_id]["crop_jpeg_b64"] = crop_b64
+
+    confirmed_inventory = []
+    total_estimated_calories = 0
+    for cls_id in sorted(grouped.keys()):
+        formatted_item = format_confirmed_inventory_item(grouped[cls_id])
+        confirmed_inventory.append(formatted_item)
+        total_estimated_calories += int(formatted_item["estimated_calories"])
+
+    filtered_post = {
+        "detections": filtered_dets,
+        "confirmed_inventory": confirmed_inventory,
+        "counts_by_class": counts_by_class,
+        "total_count": int(sum(counts_by_class.values())),
+    }
+    rendered = render(
+        bgr_image,
+        filtered_post,
+        source_name=source_name,
+        elapsed_ms=res["elapsed_ms"],
+        mode=detector_mode,
+    )
     annotated_b64 = encode_image_base64_jpeg(rendered["annotated_frame"], quality=88)
 
-    items_for_recipes = []
-    for cls_id, cnt in sorted(post["counts_by_class"].items()):
-        items_for_recipes.append({"class_id": cls_id, "count": int(cnt)})
+    detections_out = []
+    for idx, lbl in enumerate(rendered["labels"]):
+        lbl_copy = dict(lbl)
+        cls_id = normalize_class_id(lbl_copy.get("class_id") or "")
+        lbl_copy["estimated_calories"] = get_class_calories(cls_id, count=1)
+        if idx < len(filtered_dets):
+            lbl_copy["crop_jpeg_b64"] = filtered_dets[idx].get("crop_jpeg_b64")
+        detections_out.append(lbl_copy)
 
-    recipes_payload = {"recipes": [], "source": "none", "latency_ms": 0.0}
+    items_for_recipes = []
+    for inv_item in confirmed_inventory:
+        items_for_recipes.append({"class_id": inv_item["class_id"], "count": int(inv_item["count"])})
+
+    recipes_payload = {
+        "recipes": [],
+        "source": "none",
+        "latency_ms": 0.0,
+        "total_inventory_calories": 0,
+    }
     if items_for_recipes:
         recipes_payload = generate_structured_recipes(items_for_recipes, timeout_sec=2.0)
 
@@ -635,13 +886,17 @@ async def handle_ui_detect(request: Request):
         "conf_threshold": float(conf_threshold),
         "inference_ms": elapsed_ms,
         "fps": fps,
-        "total_count": int(post["total_count"]),
-        "counts_by_class": post["counts_by_class"],
-        "detections": rendered["labels"],
+        "total_count": int(filtered_post["total_count"]),
+        "counts_by_class": counts_by_class,
+        "detections": detections_out,
+        "confirmed_inventory": confirmed_inventory,
+        "total_estimated_calories": int(total_estimated_calories),
+        "excluded_classes": sorted(list(excluded_set)),
         "diagnostics": res["preprocessed"]["diagnostics"],
         "annotated_jpeg_b64": annotated_b64,
         "recipes": recipes_payload.get("recipes", []),
         "recipe_source": recipes_payload.get("source", "offline"),
+        "total_inventory_calories": int(recipes_payload.get("total_inventory_calories", total_estimated_calories)),
     })
 
 
@@ -891,6 +1146,13 @@ window.addEventListener('DOMContentLoaded', runSample);
     return HTMLResponse(content=html)
 
 
+async def handle_root(request: Request):
+    index_path = os.path.join(FRONTEND_DIST_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+    return await handle_web_ui(request)
+
+
 def create_app():
     ensure_reference_templates(templates_dir=TEMPLATES_DIR, samples_dir=SAMPLES_DIR)
     application = FastAPI(title="Stock-to-Stove Local Inference Server", version="1.0.0")
@@ -901,14 +1163,19 @@ def create_app():
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    application.add_api_route("/", handle_web_ui, methods=["GET"])
+    application.add_api_route("/", handle_root, methods=["GET"])
     application.add_api_route("/api/v1/ui/detect", handle_ui_detect, methods=["POST"])
     application.add_api_route("/api/v1/health", handle_health, methods=["GET"])
     application.add_api_route("/api/v1/scan/image", handle_scan_image, methods=["POST"])
     application.add_api_route("/api/v1/scan/video", handle_scan_video, methods=["POST"])
     application.add_api_route("/api/v1/recipes/generate", handle_recipes_generate, methods=["POST"])
     application.add_api_route("/api/v1/session/reset", handle_session_reset, methods=["POST"])
+    application.add_api_route("/api/v1/session/items/delete", handle_session_item_delete_post, methods=["POST"])
+    application.add_api_route("/api/v1/session/items/restore", handle_session_item_restore_post, methods=["POST"])
+    application.add_api_route("/api/v1/session/items/{class_id}", handle_session_item_delete_param, methods=["DELETE"])
     application.add_api_websocket_route("/ws/scan", handle_ws_scan)
+    assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
+    application.mount("/assets", StaticFiles(directory=assets_dir, check_dir=False), name="frontend_assets")
     return application
 
 

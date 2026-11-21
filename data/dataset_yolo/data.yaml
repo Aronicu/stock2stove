@@ -1,4 +1,4 @@
-path: C:\Users\AronicMoe\Documents\Projects\stock2stove\data\dataset_yolo
+path: /Users/jnvhr/Documents/VSCODE/stock2stove/data/dataset_yolo
 train: train/images
 val: valid/images
 test: test/images

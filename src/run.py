@@ -22,19 +22,24 @@ from src.cv.preprocess import (
 )
 from src.cv.temporal_tracker import (
     apply_class_nms,
+    apply_cross_class_nms,
     create_tracker_state,
     update_temporal_tracker,
 )
 from src.cv.yolo_detector import run_yolo_detection
 from src.llm_recipe import generate_structured_recipes
 from src.server.config import (
+    CROSS_CLASS_NMS_IOU,
     DEFAULT_CONF_THRESHOLD,
     NMS_IOU_THRESHOLD,
     TARGET_IMG_SIZE,
     TEMPORAL_MIN_HITS,
     TEMPORAL_WINDOW_SIZE,
     UNIFIED_CLASSES,
+    get_class_calories,
     get_display_name,
+    is_valid_food_class,
+    normalize_class_id,
 )
 from src.server.schemas import validate_detector_mode
 
@@ -126,8 +131,17 @@ def postprocess(
     tracker_state=None,
     conf_threshold=0.45,
     iou_threshold=NMS_IOU_THRESHOLD,
+    excluded_classes=None,
 ):
-    nms_dets = apply_class_nms(raw_detections, iou_threshold=float(iou_threshold))
+    filtered_raw = []
+    for det in raw_detections:
+        raw_cls = det.get("class_id")
+        if not is_valid_food_class(raw_cls):
+            continue
+        filtered_raw.append(det)
+
+    nms_dets = apply_class_nms(filtered_raw, iou_threshold=float(iou_threshold))
+    nms_dets = apply_cross_class_nms(nms_dets, iou_threshold=CROSS_CLASS_NMS_IOU)
 
     active_tracker = tracker_state
     if active_tracker is None:
@@ -142,6 +156,7 @@ def postprocess(
         active_tracker,
         nms_dets,
         conf_threshold=float(conf_threshold),
+        excluded_classes=excluded_classes,
     )
 
     frame_counts = {}
@@ -171,10 +186,34 @@ def postprocess(
 def render(frame, postprocessed, source_name="frame", elapsed_ms=0.0, mode="yolov8"):
     canvas = frame.copy()
     h, w = canvas.shape[:2]
-    detections = postprocessed.get("detections", [])
-    confirmed_inventory = postprocessed.get("confirmed_inventory", [])
-    counts_by_class = postprocessed.get("counts_by_class", {})
-    total_count = int(postprocessed.get("total_count", 0))
+
+    raw_detections = postprocessed.get("detections", [])
+    detections = []
+    for det in raw_detections:
+        raw_cls = det.get("class_id")
+        if not is_valid_food_class(raw_cls):
+            continue
+        detections.append(det)
+
+    raw_confirmed = postprocessed.get("confirmed_inventory", [])
+    confirmed_inventory = []
+    for item in raw_confirmed:
+        raw_cls = item.get("class_id")
+        if not is_valid_food_class(raw_cls):
+            continue
+        confirmed_inventory.append(item)
+
+    raw_counts = postprocessed.get("counts_by_class", {})
+    counts_by_class = {}
+    for cls_key, cnt_val in raw_counts.items():
+        if is_valid_food_class(cls_key):
+            norm_key = normalize_class_id(cls_key)
+            counts_by_class[norm_key] = counts_by_class.get(norm_key, 0) + int(cnt_val)
+
+    if "counts_by_class" in postprocessed:
+        total_count = int(sum(counts_by_class.values()))
+    else:
+        total_count = len(detections)
 
     for det in detections:
         bbox = det.get("bbox_norm", [0.0, 0.0, 0.0, 0.0])
@@ -212,16 +251,23 @@ def render(frame, postprocessed, source_name="frame", elapsed_ms=0.0, mode="yolo
     labels = []
     label_parts = []
     for det in detections:
-        cls_id = det["class_id"]
+        cls_id = normalize_class_id(det["class_id"])
         conf = float(det.get("confidence", 0.0))
-        labels.append({
+        label_entry = {
             "class_id": cls_id,
             "class_idx": CLASS_INDEX_MAP.get(cls_id, -1),
             "display_name": det.get("display_name", get_display_name(cls_id)),
             "confidence": conf,
             "bbox_norm": det.get("bbox_norm", [0.0, 0.0, 0.0, 0.0]),
             "temporally_confirmed": bool(det.get("temporally_confirmed", False)),
-        })
+        }
+        if det.get("estimated_calories") is not None:
+            label_entry["estimated_calories"] = int(det["estimated_calories"])
+        else:
+            label_entry["estimated_calories"] = get_class_calories(cls_id, 1)
+        if det.get("crop_jpeg_b64") is not None:
+            label_entry["crop_jpeg_b64"] = det["crop_jpeg_b64"]
+        labels.append(label_entry)
         label_parts.append(f"{cls_id}:{conf:.2f}")
 
     csv_row = {

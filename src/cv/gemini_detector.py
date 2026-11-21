@@ -8,15 +8,20 @@ import cv2
 import numpy as np
 
 from src.cv.preprocess import encode_image_base64_jpeg
-from src.cv.temporal_tracker import apply_class_nms, compute_iou
+from src.cv.temporal_tracker import apply_class_nms, apply_cross_class_nms, compute_iou
 from src.cv.yolo_detector import run_opencv_region_fallback, run_yolo_detection
 from src.server.config import (
+    CROSS_CLASS_NMS_IOU,
     DEFAULT_CONF_THRESHOLD,
     GEMINI_VISION_MODEL,
     NMS_IOU_THRESHOLD,
+    NON_FOOD_LABELS,
     UNIFIED_CLASSES,
+    VALID_CLASS_IDS,
+    get_class_calories,
     get_class_conf_threshold,
     get_display_name,
+    is_valid_food_class,
     normalize_class_id,
 )
 
@@ -33,10 +38,7 @@ def compute_frame_signature(bgr_image):
 
 
 def get_valid_unified_class_ids():
-    valid_ids = set()
-    for entry in UNIFIED_CLASSES:
-        valid_ids.add(entry["class_id"])
-    return valid_ids
+    return set(VALID_CLASS_IDS)
 
 
 def build_gemini_detection_schema():
@@ -146,17 +148,31 @@ def parse_gemini_boxes(raw_text, conf_threshold=DEFAULT_CONF_THRESHOLD):
 
         bw = x2 - x1
         bh = y2 - y1
-        if bw <= 0.005 or bh <= 0.005:
+        if bw < 0.015 or bh < 0.015:
             continue
 
-        raw_cls = item.get("class_id") or item.get("label") or item.get("display_name")
-        cls_id = normalize_class_id(raw_cls)
-        if cls_id not in valid_ids and item.get("display_name"):
-            alt_cls = normalize_class_id(item.get("display_name"))
-            if alt_cls in valid_ids:
-                cls_id = alt_cls
-        if cls_id not in valid_ids:
-            cls_id = "pasta_noodles"
+        raw_cls_field = item.get("class_id")
+        if raw_cls_field is None:
+            raw_cls_field = item.get("label")
+        raw_disp_field = item.get("display_name")
+
+        if raw_cls_field is not None:
+            cls_clean = str(raw_cls_field).strip().lower()
+            cls_spaced = cls_clean.replace("_", " ").replace("-", " ")
+            if cls_clean in NON_FOOD_LABELS or cls_spaced in NON_FOOD_LABELS:
+                continue
+
+        cls_id = ""
+        if raw_cls_field is not None and str(raw_cls_field).strip():
+            if is_valid_food_class(raw_cls_field):
+                cls_id = normalize_class_id(raw_cls_field)
+            elif raw_disp_field is not None and is_valid_food_class(raw_disp_field):
+                cls_id = normalize_class_id(raw_disp_field)
+        elif raw_disp_field is not None and is_valid_food_class(raw_disp_field):
+            cls_id = normalize_class_id(raw_disp_field)
+
+        if not cls_id or cls_id not in valid_ids or not is_valid_food_class(cls_id):
+            continue
 
         try:
             conf_val = float(item.get("confidence", 0.85))
@@ -178,6 +194,7 @@ def parse_gemini_boxes(raw_text, conf_threshold=DEFAULT_CONF_THRESHOLD):
             "bbox_norm": [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)],
             "polygon_norm": None,
             "temporally_confirmed": False,
+            "estimated_calories": get_class_calories(cls_id, 1),
         })
 
     return detections
@@ -229,13 +246,15 @@ def query_gemini_vision_api(bgr_image, api_key=None, model_name=None, timeout_se
 def clone_detections(detections):
     cloned = []
     for det in detections:
+        cls_id = det["class_id"]
         cloned.append({
-            "class_id": det["class_id"],
+            "class_id": cls_id,
             "display_name": det["display_name"],
             "confidence": float(det["confidence"]),
             "bbox_norm": list(det["bbox_norm"]),
             "polygon_norm": list(det["polygon_norm"]) if det.get("polygon_norm") else None,
             "temporally_confirmed": bool(det.get("temporally_confirmed", False)),
+            "estimated_calories": int(det.get("estimated_calories") or get_class_calories(cls_id, 1)),
         })
     return cloned
 
@@ -295,6 +314,7 @@ def run_gemini_detection(
     if raw_text is not None:
         parsed_dets = parse_gemini_boxes(raw_text, conf_threshold=float(conf_threshold))
         deduped = apply_class_nms(parsed_dets, iou_threshold=float(iou_threshold))
+        deduped = apply_cross_class_nms(deduped, iou_threshold=CROSS_CLASS_NMS_IOU)
         if use_cache:
             store_cached_detections(cache_key, deduped, resolved_model, True)
         return deduped, {
@@ -329,6 +349,7 @@ def run_gemini_detection(
             combined.append(cd)
 
     deduped_fallback = apply_class_nms(combined, iou_threshold=float(iou_threshold))
+    deduped_fallback = apply_cross_class_nms(deduped_fallback, iou_threshold=CROSS_CLASS_NMS_IOU)
     return deduped_fallback, {
         "detector_mode": "gemini_vision",
         "backend": "gemini_offline_fallback",
@@ -404,6 +425,7 @@ def run_hybrid_gemini_detection(
                 "bbox_norm": chosen_box,
                 "polygon_norm": None,
                 "temporally_confirmed": False,
+                "estimated_calories": int(yd.get("estimated_calories") or get_class_calories(yd["class_id"], 1)),
             })
         else:
             fused.append({
@@ -413,6 +435,7 @@ def run_hybrid_gemini_detection(
                 "bbox_norm": list(yd["bbox_norm"]),
                 "polygon_norm": yd.get("polygon_norm"),
                 "temporally_confirmed": bool(yd.get("temporally_confirmed", False)),
+                "estimated_calories": int(yd.get("estimated_calories") or get_class_calories(yd["class_id"], 1)),
             })
 
     for g_idx, gd in enumerate(gemini_dets):
@@ -425,9 +448,11 @@ def run_hybrid_gemini_detection(
             "bbox_norm": list(gd["bbox_norm"]),
             "polygon_norm": gd.get("polygon_norm"),
             "temporally_confirmed": bool(gd.get("temporally_confirmed", False)),
+            "estimated_calories": int(gd.get("estimated_calories") or get_class_calories(gd["class_id"], 1)),
         })
 
     deduped = apply_class_nms(fused, iou_threshold=float(iou_threshold))
+    deduped = apply_cross_class_nms(deduped, iou_threshold=CROSS_CLASS_NMS_IOU)
     return deduped, {
         "detector_mode": "hybrid_gemini",
         "yolo_backend": yolo_meta.get("backend", "none"),

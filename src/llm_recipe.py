@@ -14,8 +14,10 @@ from src.server.config import (
     GEMINI_RECIPE_MODEL,
     LLM_TIMEOUT_SECONDS,
     OUTPUTS_DIR,
+    get_class_calories,
     get_display_name,
     get_storage_zone,
+    is_valid_food_class,
     normalize_class_id,
 )
 
@@ -29,6 +31,12 @@ OFFLINE_RECIPE_BANK = [
         "prep_time_mins": 15,
         "difficulty": "Easy",
         "required_classes": ["pasta_noodles", "canned_tomato", "canned_tuna_meat"],
+        "estimated_calories": 470,
+        "ingredient_calories": {
+            "Pasta & Noodles": 220,
+            "Canned Tomatoes": 70,
+            "Canned Tuna & Meat": 180,
+        },
         "additional_staples": ["Cooking Oil", "Salt", "Black Pepper", "Chili Flakes"],
         "steps": [
             "Boil pasta or noodles in salted water until al dente, reserving 1/4 cup pasta water.",
@@ -44,6 +52,12 @@ OFFLINE_RECIPE_BANK = [
         "prep_time_mins": 18,
         "difficulty": "Easy",
         "required_classes": ["pasta_noodles", "milk_dairy", "fresh_produce"],
+        "estimated_calories": 425,
+        "ingredient_calories": {
+            "Pasta & Noodles": 220,
+            "Milk & Dairy": 150,
+            "Fresh Produce": 55,
+        },
         "additional_staples": ["Salt", "Black Pepper", "Cooking Oil"],
         "steps": [
             "Cook pasta in salted boiling water until tender, then drain.",
@@ -59,6 +73,12 @@ OFFLINE_RECIPE_BANK = [
         "prep_time_mins": 12,
         "difficulty": "Easy",
         "required_classes": ["canned_tomato", "eggs", "fresh_produce"],
+        "estimated_calories": 203,
+        "ingredient_calories": {
+            "Canned Tomatoes": 70,
+            "Eggs": 78,
+            "Fresh Produce": 55,
+        },
         "additional_staples": ["Cooking Oil", "Salt", "Black Pepper"],
         "steps": [
             "Saute chopped fresh produce in a skillet with oil until softened.",
@@ -74,6 +94,12 @@ OFFLINE_RECIPE_BANK = [
         "prep_time_mins": 10,
         "difficulty": "Easy",
         "required_classes": ["eggs", "milk_dairy", "canned_tuna_meat"],
+        "estimated_calories": 408,
+        "ingredient_calories": {
+            "Eggs": 78,
+            "Milk & Dairy": 150,
+            "Canned Tuna & Meat": 180,
+        },
         "additional_staples": ["Salt", "Black Pepper", "Cooking Oil"],
         "steps": [
             "Whisk eggs with a splash of milk or dairy and a pinch of salt.",
@@ -89,6 +115,13 @@ OFFLINE_RECIPE_BANK = [
         "prep_time_mins": 15,
         "difficulty": "Easy",
         "required_classes": ["cereal_grains", "canned_tomato", "canned_tuna_meat", "eggs"],
+        "estimated_calories": 518,
+        "ingredient_calories": {
+            "Cereal & Grains": 190,
+            "Canned Tomatoes": 70,
+            "Canned Tuna & Meat": 180,
+            "Eggs": 78,
+        },
         "additional_staples": ["Water", "Salt", "Black Pepper", "Soy Sauce or Oil"],
         "steps": [
             "Simmer grains or oats with water and a spoonful of canned tomatoes for a savory base.",
@@ -104,6 +137,12 @@ OFFLINE_RECIPE_BANK = [
         "prep_time_mins": 8,
         "difficulty": "Easy",
         "required_classes": ["cereal_grains", "milk_dairy", "coffee_condiment"],
+        "estimated_calories": 385,
+        "ingredient_calories": {
+            "Cereal & Grains": 190,
+            "Milk & Dairy": 150,
+            "Coffee & Condiments": 45,
+        },
         "additional_staples": ["Warm Water", "Pinch of Salt"],
         "steps": [
             "Combine cereal or oats with milk or yogurt in a bowl and let soften for 3 minutes.",
@@ -130,6 +169,8 @@ def extract_normalized_inventory(inventory_items):
             raw_val = str(item)
         if not raw_val:
             continue
+        if not is_valid_food_class(raw_val):
+            continue
         cls_id = normalize_class_id(raw_val)
         if cls_id not in seen:
             seen.add(cls_id)
@@ -137,6 +178,89 @@ def extract_normalized_inventory(inventory_items):
 
     normalized.sort()
     return normalized
+
+
+def compute_inventory_total_calories(inventory_items):
+    if not inventory_items:
+        return 0
+    total_kcal = 0
+    for item in inventory_items:
+        raw_val = None
+        qty = 1
+        if isinstance(item, dict):
+            raw_val = item.get("class_id") or item.get("display_name") or item.get("name")
+            try:
+                qty = max(1, int(item.get("count", 1)))
+            except (TypeError, ValueError):
+                qty = 1
+        else:
+            raw_val = str(item)
+        if not raw_val or not is_valid_food_class(raw_val):
+            continue
+        cls_id = normalize_class_id(raw_val)
+        total_kcal += get_class_calories(cls_id, count=qty)
+    return int(total_kcal)
+
+
+def compute_recipe_calorie_fallback(
+    matched_ingredients,
+    fallback_classes,
+    raw_ingredient_calories=None,
+    raw_estimated_calories=None,
+):
+    ing_cals = {}
+    if isinstance(raw_ingredient_calories, dict) and len(raw_ingredient_calories) > 0:
+        for k, v in raw_ingredient_calories.items():
+            try:
+                val_int = max(0, int(round(float(v))))
+            except (TypeError, ValueError):
+                val_int = get_class_calories(str(k), count=1)
+            ing_cals[str(k)] = val_int
+    else:
+        for ing in matched_ingredients:
+            ing_name = str(ing).strip()
+            if not ing_name:
+                continue
+            ing_cals[ing_name] = get_class_calories(ing_name, count=1)
+        if not ing_cals and fallback_classes:
+            for c in fallback_classes[:3]:
+                ing_cals[get_display_name(c)] = get_class_calories(c, count=1)
+
+    est_kcal = 0
+    if raw_estimated_calories is not None:
+        try:
+            est_kcal = int(round(float(raw_estimated_calories)))
+        except (TypeError, ValueError):
+            est_kcal = 0
+    if est_kcal <= 0:
+        est_kcal = sum(ing_cals.values())
+    if est_kcal <= 0:
+        est_kcal = 250
+
+    return int(est_kcal), ing_cals
+
+
+def enrich_recipe_cards_calories(cards, fallback_classes):
+    enriched = []
+    changed = False
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        card_copy = dict(card)
+        has_est = "estimated_calories" in card_copy and isinstance(card_copy.get("estimated_calories"), (int, float)) and int(card_copy["estimated_calories"]) > 0
+        has_ing = isinstance(card_copy.get("ingredient_calories"), dict) and len(card_copy.get("ingredient_calories")) > 0
+        if not has_est or not has_ing:
+            changed = True
+        est_kcal, ing_cals = compute_recipe_calorie_fallback(
+            card_copy.get("matched_ingredients") or [],
+            fallback_classes,
+            raw_ingredient_calories=card_copy.get("ingredient_calories"),
+            raw_estimated_calories=card_copy.get("estimated_calories"),
+        )
+        card_copy["estimated_calories"] = est_kcal
+        card_copy["ingredient_calories"] = ing_cals
+        enriched.append(card_copy)
+    return enriched, changed
 
 
 def load_disk_recipe_cache():
@@ -180,8 +304,18 @@ def build_offline_recipe_cards(normalized_classes):
                 zones_set.add(get_storage_zone(c))
 
         matched_names = []
+        ingredient_calories = {}
         for c in matched_cls:
-            matched_names.append(get_display_name(c))
+            disp = get_display_name(c)
+            matched_names.append(disp)
+            ingredient_calories[disp] = get_class_calories(c, count=1)
+
+        if not ingredient_calories:
+            ingredient_calories = dict(template.get("ingredient_calories", {}))
+
+        estimated_calories = sum(ingredient_calories.values())
+        if estimated_calories <= 0:
+            estimated_calories = int(template.get("estimated_calories", 250))
 
         zones_list = sorted(list(zones_set))
         if not zones_list:
@@ -193,6 +327,8 @@ def build_offline_recipe_cards(normalized_classes):
             "title": template["title"],
             "prep_time_mins": int(template["prep_time_mins"]),
             "difficulty": template["difficulty"],
+            "estimated_calories": int(estimated_calories),
+            "ingredient_calories": ingredient_calories,
             "storage_zones_used": zones_list,
             "matched_ingredients": matched_names,
             "additional_staples": list(template["additional_staples"]),
@@ -222,17 +358,19 @@ def build_llm_json_prompt(normalized_classes):
     for c in normalized_classes:
         zone = get_storage_zone(c)
         name = get_display_name(c)
-        display_items.append(f"{name} ({zone})")
+        kcal = get_class_calories(c, count=1)
+        display_items.append(f"{name} ({zone}, ~{kcal} kcal)")
 
     joined_items = ", ".join(display_items)
     if not joined_items:
-        joined_items = "Pasta & Noodles (Pantry), Canned Tomatoes (Pantry)"
+        joined_items = "Pasta & Noodles (Pantry, ~220 kcal), Canned Tomatoes (Pantry, ~70 kcal)"
 
     prompt = (
         f"Available pantry and refrigerator ingredients: {joined_items}. "
         "Generate exactly 3 practical zero-waste recipes using mostly these items plus basic salt, pepper, and cooking oil. "
         "Return ONLY valid JSON as an array of 3 objects with keys: "
         "id (string), title (string), prep_time_mins (int), difficulty (string), "
+        "estimated_calories (int kcal per serving), ingredient_calories (object mapping ingredient display name to int kcal), "
         "storage_zones_used (array of strings), matched_ingredients (array of strings), "
         "additional_staples (array of strings), steps (array of 3-4 step strings), zero_waste_tip (string)."
     )
@@ -270,11 +408,19 @@ def parse_llm_recipes_json(raw_text, fallback_classes):
         steps = item.get("steps") or []
         if not steps:
             steps = ["Prepare ingredients.", "Cook over medium heat.", "Season and serve warm."]
+        est_kcal, ing_cals = compute_recipe_calorie_fallback(
+            matched,
+            fallback_classes,
+            raw_ingredient_calories=item.get("ingredient_calories"),
+            raw_estimated_calories=item.get("estimated_calories"),
+        )
         cards.append({
             "id": str(item.get("id") or f"llm_recipe_{idx + 1}"),
             "title": str(item.get("title") or f"Zero-Waste Pantry Dish #{idx + 1}"),
             "prep_time_mins": int(item.get("prep_time_mins") or 15),
             "difficulty": str(item.get("difficulty") or "Easy"),
+            "estimated_calories": int(est_kcal),
+            "ingredient_calories": ing_cals,
             "storage_zones_used": list(item.get("storage_zones_used") or ["Pantry", "Refrigerator"]),
             "matched_ingredients": list(matched),
             "additional_staples": list(item.get("additional_staples") or ["Cooking Oil", "Salt", "Pepper"]),
@@ -308,6 +454,11 @@ def query_live_llm_worker(prompt, gemini_key, openai_key):
                                 "title": {"type": "string"},
                                 "prep_time_mins": {"type": "integer"},
                                 "difficulty": {"type": "string"},
+                                "estimated_calories": {"type": "integer"},
+                                "ingredient_calories": {
+                                    "type": "object",
+                                    "additionalProperties": {"type": "integer"},
+                                },
                                 "storage_zones_used": {"type": "array", "items": {"type": "string"}},
                                 "matched_ingredients": {"type": "array", "items": {"type": "string"}},
                                 "additional_staples": {"type": "array", "items": {"type": "string"}},
@@ -319,6 +470,8 @@ def query_live_llm_worker(prompt, gemini_key, openai_key):
                                 "title",
                                 "prep_time_mins",
                                 "difficulty",
+                                "estimated_calories",
+                                "ingredient_calories",
                                 "storage_zones_used",
                                 "matched_ingredients",
                                 "additional_staples",
@@ -363,6 +516,7 @@ def query_live_llm_worker(prompt, gemini_key, openai_key):
 
 def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_TIMEOUT_SECONDS):
     start_time = time.perf_counter()
+    total_inventory_calories = compute_inventory_total_calories(inventory_items)
     normalized_classes = extract_normalized_inventory(inventory_items)
     if not normalized_classes:
         normalized_classes = ["pasta_noodles", "canned_tomato"]
@@ -393,31 +547,41 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
                     "cached": False,
                     "latency_ms": round(elapsed_ms, 2),
                     "inventory_used": normalized_classes,
+                    "total_inventory_calories": int(total_inventory_calories),
                     "recipes": cards,
                 }
         except (FuturesTimeoutError, Exception):
             executor.shutdown(wait=False, cancel_futures=True)
 
     if cache_key in RECIPE_MEMORY_CACHE:
+        mem_cards, changed = enrich_recipe_cards_calories(RECIPE_MEMORY_CACHE[cache_key], normalized_classes)
+        if changed:
+            RECIPE_MEMORY_CACHE[cache_key] = mem_cards
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         return {
             "source": "offline_cache",
             "cached": True,
             "latency_ms": round(elapsed_ms, 2),
             "inventory_used": normalized_classes,
-            "recipes": RECIPE_MEMORY_CACHE[cache_key],
+            "total_inventory_calories": int(total_inventory_calories),
+            "recipes": mem_cards,
         }
 
     disk_cache = load_disk_recipe_cache()
     if cache_key in disk_cache:
-        RECIPE_MEMORY_CACHE[cache_key] = disk_cache[cache_key]
+        disk_cards, changed = enrich_recipe_cards_calories(disk_cache[cache_key], normalized_classes)
+        RECIPE_MEMORY_CACHE[cache_key] = disk_cards
+        if changed:
+            disk_cache[cache_key] = disk_cards
+            save_disk_recipe_cache(disk_cache)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         return {
             "source": "offline_cache",
             "cached": True,
             "latency_ms": round(elapsed_ms, 2),
             "inventory_used": normalized_classes,
-            "recipes": disk_cache[cache_key],
+            "total_inventory_calories": int(total_inventory_calories),
+            "recipes": disk_cards,
         }
 
     offline_cards = build_offline_recipe_cards(normalized_classes)
@@ -431,6 +595,7 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
         "cached": True,
         "latency_ms": round(elapsed_ms, 2),
         "inventory_used": normalized_classes,
+        "total_inventory_calories": int(total_inventory_calories),
         "recipes": offline_cards,
     }
 
