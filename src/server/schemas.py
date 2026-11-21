@@ -2,6 +2,7 @@ from src.server.config import (
     DEFAULT_CONF_THRESHOLD,
     LLM_TIMEOUT_SECONDS,
     SUPPORTED_DETECTOR_MODES,
+    get_class_calories,
     get_display_name,
     normalize_class_id,
 )
@@ -59,7 +60,7 @@ def parse_scan_frame_request(payload, session_defaults=None):
 
 
 def format_detection_item(det):
-    raw_cls = det.get("class_id", "pasta_noodles")
+    raw_cls = det.get("class_id") or "pasta_noodles"
     cls_id = normalize_class_id(raw_cls)
     disp = det.get("display_name") or get_display_name(cls_id)
     conf = round(float(det.get("confidence", 0.0)), 2)
@@ -87,21 +88,26 @@ def format_detection_item(det):
         "polygon_norm": polygon_norm,
         "temporally_confirmed": bool(det.get("temporally_confirmed", False)),
         "crop_jpeg_b64": det.get("crop_jpeg_b64"),
+        "estimated_calories": get_class_calories(cls_id, count=1),
     }
 
 
 def format_confirmed_inventory_item(item):
-    raw_cls = item.get("class_id", "pasta_noodles")
+    raw_cls = item.get("class_id") or "pasta_noodles"
     cls_id = normalize_class_id(raw_cls)
     disp = item.get("display_name") or get_display_name(cls_id)
     count = max(1, int(item.get("count", 1)))
     max_conf = round(float(item.get("max_conf", 0.5)), 2)
+    calories_per_unit = get_class_calories(cls_id, count=1)
+    estimated_calories = get_class_calories(cls_id, count=count)
     return {
         "class_id": cls_id,
         "display_name": str(disp),
         "count": count,
         "max_conf": max_conf,
         "crop_jpeg_b64": item.get("crop_jpeg_b64"),
+        "calories_per_unit": calories_per_unit,
+        "estimated_calories": estimated_calories,
     }
 
 
@@ -112,6 +118,7 @@ def format_scan_response(
     diagnostics,
     detections,
     confirmed_inventory,
+    excluded_classes=None,
 ):
     inf_ms = round(max(0.01, float(inference_ms)), 2)
     fps = round(1000.0 / inf_ms, 1)
@@ -121,8 +128,16 @@ def format_scan_response(
         formatted_dets.append(format_detection_item(d))
 
     formatted_inv = []
+    total_estimated_calories = 0
     for item in confirmed_inventory:
-        formatted_inv.append(format_confirmed_inventory_item(item))
+        formatted_item = format_confirmed_inventory_item(item)
+        formatted_inv.append(formatted_item)
+        total_estimated_calories += int(formatted_item["estimated_calories"])
+
+    excluded_list = []
+    if excluded_classes:
+        for cls_val in excluded_classes:
+            excluded_list.append(str(cls_val))
 
     diag_out = {
         "edge_density_pct": round(float(diagnostics.get("edge_density_pct", 0.0)), 2),
@@ -142,6 +157,8 @@ def format_scan_response(
         "diagnostics": diag_out,
         "detections": formatted_dets,
         "confirmed_inventory": formatted_inv,
+        "total_estimated_calories": int(total_estimated_calories),
+        "excluded_classes": excluded_list,
     }
 
 

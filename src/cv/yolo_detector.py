@@ -3,18 +3,23 @@ import cv2
 import numpy as np
 
 from src.cv.baseline_detector import run_baseline_detection
-from src.cv.temporal_tracker import apply_class_nms
+from src.cv.temporal_tracker import apply_class_nms, apply_cross_class_nms
 from src.server.config import (
+    CROSS_CLASS_NMS_IOU,
     DEFAULT_CONF_THRESHOLD,
     FINE_TUNED_ONNX_PATH,
     FINE_TUNED_PT_PATH,
     MODELS_DIR,
     NMS_IOU_THRESHOLD,
+    NON_FOOD_LABELS,
     UNIFIED_CLASSES,
+    VALID_CLASS_IDS,
     YOLO_COCO_PT_PATH,
     YOLO_WORLD_PT_PATH,
+    get_class_calories,
     get_class_conf_threshold,
     get_display_name,
+    is_valid_food_class,
     normalize_class_id,
 )
 
@@ -28,9 +33,6 @@ MODEL_REGISTRY = {
 
 COCO_TO_UNIFIED_MAP = {
     "bottle": "coffee_condiment",
-    "wine glass": "coffee_condiment",
-    "cup": "milk_dairy",
-    "bowl": "cereal_grains",
     "banana": "fresh_produce",
     "apple": "fresh_produce",
     "sandwich": "cereal_grains",
@@ -41,7 +43,6 @@ COCO_TO_UNIFIED_MAP = {
     "pizza": "pasta_noodles",
     "donut": "cereal_grains",
     "cake": "cereal_grains",
-    "book": "pasta_noodles",
 }
 
 
@@ -64,6 +65,7 @@ def build_world_prompts():
         for p in entry["prompts"]:
             prompts.append(p)
             prompt_to_class[p] = cls_id
+            prompt_to_class[p.lower()] = cls_id
     return prompts, prompt_to_class
 
 
@@ -193,15 +195,23 @@ def run_opencv_region_fallback(bgr_image, conf_threshold=DEFAULT_CONF_THRESHOLD,
         min_inliers=5,
     )
     for bdet in baseline_dets:
+        raw_cls = bdet.get("class_id")
+        if not is_valid_food_class(raw_cls):
+            continue
+        cls_id = normalize_class_id(raw_cls)
+        if cls_id not in VALID_CLASS_IDS or not is_valid_food_class(cls_id):
+            continue
         boosted_conf = min(0.96, round(float(bdet["confidence"]) + 0.12, 2))
-        if boosted_conf >= float(conf_threshold):
+        req_conf = get_class_conf_threshold(cls_id, conf_threshold)
+        if boosted_conf >= req_conf:
             detections.append({
-                "class_id": bdet["class_id"],
+                "class_id": cls_id,
                 "display_name": bdet["display_name"],
                 "confidence": boosted_conf,
                 "bbox_norm": list(bdet["bbox_norm"]),
                 "polygon_norm": None,
                 "temporally_confirmed": False,
+                "estimated_calories": get_class_calories(cls_id, 1),
             })
 
     gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
@@ -238,11 +248,14 @@ def run_opencv_region_fallback(bgr_image, conf_threshold=DEFAULT_CONF_THRESHOLD,
         _, x, y, cw, ch = item
         patch = bgr_image[y : y + ch, x : x + cw]
         cls_id, base_conf = classify_patch_hsv(patch)
+        if not is_valid_food_class(cls_id):
+            continue
 
         patch_edges = edges[y : y + ch, x : x + cw]
         edge_ratio = float(np.count_nonzero(patch_edges)) / float(max(1, cw * ch))
         conf = min(0.95, max(0.52, round(base_conf + min(0.07, edge_ratio * 0.25), 2)))
-        if conf < float(conf_threshold):
+        req_conf = get_class_conf_threshold(cls_id, conf_threshold)
+        if conf < req_conf:
             continue
 
         bbox_norm = [
@@ -259,9 +272,11 @@ def run_opencv_region_fallback(bgr_image, conf_threshold=DEFAULT_CONF_THRESHOLD,
             "bbox_norm": bbox_norm,
             "polygon_norm": None,
             "temporally_confirmed": False,
+            "estimated_calories": get_class_calories(cls_id, 1),
         })
 
     deduped = apply_class_nms(detections, iou_threshold=iou_threshold)
+    deduped = apply_cross_class_nms(deduped, iou_threshold=CROSS_CLASS_NMS_IOU)
     return deduped
 
 
@@ -283,7 +298,7 @@ def run_yolo_detection(
 
     if model is not None:
         try:
-            predict_conf = min(float(conf_threshold), 0.45)
+            predict_conf = min(float(conf_threshold), 0.35)
             results = model.predict(
                 source=bgr_image,
                 conf=predict_conf,
@@ -308,13 +323,25 @@ def run_yolo_detection(
                     c_val = float(conf_arr[idx])
                     cls_idx = int(cls_arr[idx])
                     raw_label = names_map.get(cls_idx, str(cls_idx))
+                    raw_clean = str(raw_label or "").strip().lower()
+                    raw_spaced = raw_clean.replace("_", " ").replace("-", " ")
+
+                    if not raw_clean or raw_clean in NON_FOOD_LABELS or raw_spaced in NON_FOOD_LABELS:
+                        continue
 
                     if raw_label in prompt_to_class:
                         cls_id = prompt_to_class[raw_label]
-                    elif raw_label in COCO_TO_UNIFIED_MAP:
-                        cls_id = COCO_TO_UNIFIED_MAP[raw_label]
-                    else:
+                    elif raw_clean in prompt_to_class:
+                        cls_id = prompt_to_class[raw_clean]
+                    elif raw_clean in COCO_TO_UNIFIED_MAP:
+                        cls_id = COCO_TO_UNIFIED_MAP[raw_clean]
+                    elif is_valid_food_class(raw_label):
                         cls_id = normalize_class_id(raw_label)
+                    else:
+                        continue
+
+                    if cls_id not in VALID_CLASS_IDS or not is_valid_food_class(cls_id):
+                        continue
 
                     req_conf = get_class_conf_threshold(cls_id, conf_threshold)
                     if c_val < req_conf:
@@ -326,9 +353,9 @@ def run_yolo_detection(
                     y2_n = max(0.0, min(1.0, float(by2) / float(h)))
                     bw_n = x2_n - x1_n
                     bh_n = y2_n - y1_n
-                    if bw_n <= 0.005 or bh_n <= 0.005:
+                    if bw_n < 0.015 or bh_n < 0.015:
                         continue
-                    if bw_n * bh_n > 0.60:
+                    if bw_n * bh_n > 0.65:
                         continue
                     aspect = max(bw_n / max(bh_n, 1e-6), bh_n / max(bw_n, 1e-6))
                     if aspect > 6.0:
@@ -347,9 +374,11 @@ def run_yolo_detection(
                         "bbox_norm": bbox_norm,
                         "polygon_norm": None,
                         "temporally_confirmed": False,
+                        "estimated_calories": get_class_calories(cls_id, 1),
                     })
 
             deduped = apply_class_nms(detections, iou_threshold=iou_threshold)
+            deduped = apply_cross_class_nms(deduped, iou_threshold=CROSS_CLASS_NMS_IOU)
             return deduped, {
                 "detector_mode": normalized_mode,
                 "backend": "ultralytics",

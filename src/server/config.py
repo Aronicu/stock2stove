@@ -11,6 +11,7 @@ RAW_HOME_DIR = os.path.join(DATA_DIR, "raw_home")
 DATASET_YOLO_DIR = os.path.join(DATA_DIR, "dataset_yolo")
 MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 OUTPUTS_DIR = os.path.join(PROJECT_ROOT, "outputs")
+FRONTEND_DIST_DIR = os.path.join(PROJECT_ROOT, "frontend", "dist")
 
 FINE_TUNED_PT_PATH = os.path.join(MODELS_DIR, "yolov8n_stock2stove.pt")
 FINE_TUNED_ONNX_PATH = os.path.join(MODELS_DIR, "yolov8n_stock2stove.onnx")
@@ -25,20 +26,32 @@ CLAHE_CLIP_LIMIT = 2.0
 CLAHE_TILE_GRID_SIZE = (8, 8)
 LETTERBOX_PAD_COLOR = (114, 114, 114)
 
-DEFAULT_CONF_THRESHOLD = 0.50
+DEFAULT_CONF_THRESHOLD = 0.45
 NMS_IOU_THRESHOLD = 0.45
+CROSS_CLASS_NMS_IOU = 0.65
 TEMPORAL_WINDOW_SIZE = 5
 TEMPORAL_MIN_HITS = 3
 
 CLASS_CONF_THRESHOLDS = {
-    "pasta_noodles": 0.50,
-    "canned_tomato": 0.50,
-    "canned_tuna_meat": 0.76,
-    "cereal_grains": 0.50,
-    "coffee_condiment": 0.50,
-    "milk_dairy": 0.50,
-    "eggs": 0.50,
-    "fresh_produce": 0.50,
+    "pasta_noodles": 0.45,
+    "canned_tomato": 0.45,
+    "canned_tuna_meat": 0.72,
+    "cereal_grains": 0.45,
+    "coffee_condiment": 0.45,
+    "milk_dairy": 0.45,
+    "eggs": 0.45,
+    "fresh_produce": 0.45,
+}
+
+CLASS_CALORIE_ESTIMATES = {
+    "pasta_noodles": 220,
+    "canned_tomato": 70,
+    "canned_tuna_meat": 180,
+    "cereal_grains": 190,
+    "coffee_condiment": 45,
+    "milk_dairy": 150,
+    "eggs": 78,
+    "fresh_produce": 55,
 }
 
 ORB_NFEATURES = 1000
@@ -121,32 +134,95 @@ UNIFIED_CLASSES = [
     },
 ]
 
+VALID_CLASS_IDS = set()
+for entry in UNIFIED_CLASSES:
+    VALID_CLASS_IDS.add(entry["class_id"])
+
+NON_FOOD_LABELS = {
+    "person",
+    "book",
+    "cell phone",
+    "laptop",
+    "chair",
+    "table",
+    "dining table",
+    "tv",
+    "keyboard",
+    "mouse",
+    "remote",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
+    "handbag",
+    "backpack",
+    "umbrella",
+    "tie",
+    "suitcase",
+    "couch",
+    "bed",
+    "toilet",
+    "sink",
+    "refrigerator",
+    "oven",
+    "microwave",
+    "toaster",
+    "potted plant",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "cup",
+    "wine glass",
+}
+
 CLASS_ALIASES = {
     "pasta_noodles": "pasta_noodles",
+    "pasta & noodles": "pasta_noodles",
     "pasta_box": "pasta_noodles",
     "pasta": "pasta_noodles",
     "noodles": "pasta_noodles",
     "spaghetti": "pasta_noodles",
+    "macaroni": "pasta_noodles",
+    "pizza": "pasta_noodles",
     "canned_tomato": "canned_tomato",
-    "tomato_can": "canned_tomato",
     "canned tomatoes": "canned_tomato",
+    "tomato_can": "canned_tomato",
     "tomato_sauce": "canned_tomato",
+    "tomato paste": "canned_tomato",
+    "crushed tomatoes": "canned_tomato",
     "canned_tuna_meat": "canned_tuna_meat",
+    "canned tuna & meat": "canned_tuna_meat",
     "tuna_can": "canned_tuna_meat",
     "canned_tuna": "canned_tuna_meat",
     "tuna": "canned_tuna_meat",
     "corned_beef": "canned_tuna_meat",
+    "corned beef": "canned_tuna_meat",
+    "sardines": "canned_tuna_meat",
+    "hot dog": "canned_tuna_meat",
     "cereal_grains": "cereal_grains",
+    "cereal & grains": "cereal_grains",
     "cereal_box": "cereal_grains",
     "cereal": "cereal_grains",
     "oats": "cereal_grains",
+    "oatmeal": "cereal_grains",
     "rice": "cereal_grains",
+    "sandwich": "cereal_grains",
+    "donut": "cereal_grains",
+    "cake": "cereal_grains",
     "coffee_condiment": "coffee_condiment",
+    "coffee & condiments": "coffee_condiment",
     "coffee_bag": "coffee_condiment",
     "coffee": "coffee_condiment",
     "condiment": "coffee_condiment",
     "oil": "coffee_condiment",
+    "cooking oil": "coffee_condiment",
+    "soy sauce": "coffee_condiment",
+    "bottle": "coffee_condiment",
     "milk_dairy": "milk_dairy",
+    "milk & dairy": "milk_dairy",
     "milk": "milk_dairy",
     "cheese": "milk_dairy",
     "butter": "milk_dairy",
@@ -154,29 +230,54 @@ CLASS_ALIASES = {
     "eggs": "eggs",
     "egg": "eggs",
     "fresh_produce": "fresh_produce",
+    "fresh produce": "fresh_produce",
     "vegetables": "fresh_produce",
     "garlic": "fresh_produce",
     "onion": "fresh_produce",
     "tomato": "fresh_produce",
+    "apple": "fresh_produce",
+    "banana": "fresh_produce",
+    "orange": "fresh_produce",
+    "broccoli": "fresh_produce",
+    "carrot": "fresh_produce",
+    "bell pepper": "fresh_produce",
 }
 
 
 def normalize_class_id(raw_name):
-    if not raw_name:
-        return "pasta_noodles"
+    if raw_name is None:
+        return ""
     cleaned = str(raw_name).strip().lower()
+    if not cleaned:
+        return ""
+    spaced = cleaned.replace("_", " ").replace("-", " ")
+    underscored = cleaned.replace(" ", "_").replace("-", "_")
+    if cleaned in NON_FOOD_LABELS or spaced in NON_FOOD_LABELS:
+        return underscored
     if cleaned in CLASS_ALIASES:
         return CLASS_ALIASES[cleaned]
-    underscored = cleaned.replace(" ", "_").replace("-", "_")
     if underscored in CLASS_ALIASES:
         return CLASS_ALIASES[underscored]
     for entry in UNIFIED_CLASSES:
-        if entry["class_id"] == underscored:
+        if entry["class_id"] == underscored or entry["display_name"].lower() == cleaned:
             return entry["class_id"]
         for prompt in entry["prompts"]:
-            if prompt == cleaned or prompt in cleaned or cleaned in prompt:
+            if prompt == cleaned or prompt in cleaned:
                 return entry["class_id"]
     return underscored
+
+
+def is_valid_food_class(raw_name):
+    if raw_name is None:
+        return False
+    cleaned = str(raw_name).strip().lower()
+    if not cleaned:
+        return False
+    spaced = cleaned.replace("_", " ").replace("-", " ")
+    if cleaned in NON_FOOD_LABELS or spaced in NON_FOOD_LABELS:
+        return False
+    canonical = normalize_class_id(cleaned)
+    return canonical in VALID_CLASS_IDS
 
 
 def get_display_name(class_id):
@@ -188,7 +289,7 @@ def get_display_name(class_id):
         return "Pasta Box"
     if class_id == "tomato_can":
         return "Canned Tomatoes"
-    words = str(class_id).replace("_", " ").split()
+    words = str(class_id or "").replace("_", " ").split()
     capitalized = []
     for word in words:
         capitalized.append(word.capitalize())
@@ -203,9 +304,16 @@ def get_storage_zone(class_id):
     return "Pantry"
 
 
+def get_class_calories(class_id, count=1):
+    canonical = normalize_class_id(class_id)
+    per_unit = CLASS_CALORIE_ESTIMATES.get(canonical, 100)
+    qty = max(1, int(count))
+    return int(per_unit * qty)
+
+
 def get_class_conf_threshold(class_id, base_threshold=DEFAULT_CONF_THRESHOLD):
+    if base_threshold is None:
+        base_threshold = DEFAULT_CONF_THRESHOLD
     canonical = normalize_class_id(class_id)
     cls_min = CLASS_CONF_THRESHOLDS.get(canonical, DEFAULT_CONF_THRESHOLD)
-    if canonical == "canned_tuna_meat":
-        return max(float(base_threshold), float(cls_min))
-    return float(base_threshold)
+    return max(float(base_threshold), float(cls_min))
