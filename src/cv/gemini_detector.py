@@ -28,7 +28,6 @@ from src.server.config import (
     UNIFIED_CLASSES,
     VALID_CLASS_IDS,
     get_class_calories,
-    get_class_conf_threshold,
     get_display_name,
     get_gemini_thinking_level,
     is_valid_food_class,
@@ -272,7 +271,7 @@ def parse_gemini_boxes(raw_text, conf_threshold=DEFAULT_CONF_THRESHOLD, excluded
             conf_val = 0.85
         conf_val = max(0.0, min(1.0, conf_val))
 
-        req_conf = get_class_conf_threshold(cls_id, float(conf_threshold))
+        req_conf = float(conf_threshold)
         if conf_val < req_conf:
             continue
 
@@ -287,6 +286,7 @@ def parse_gemini_boxes(raw_text, conf_threshold=DEFAULT_CONF_THRESHOLD, excluded
             "polygon_norm": None,
             "temporally_confirmed": False,
             "estimated_calories": clamp_estimated_calories(item.get("estimated_calories"), cls_id),
+            "use_base_conf": True,
         })
 
     return detections
@@ -367,7 +367,7 @@ def clone_detections(detections):
     cloned = []
     for det in detections:
         cls_id = det["class_id"]
-        cloned.append({
+        entry = {
             "class_id": cls_id,
             "display_name": det["display_name"],
             "confidence": float(det["confidence"]),
@@ -375,7 +375,10 @@ def clone_detections(detections):
             "polygon_norm": list(det["polygon_norm"]) if det.get("polygon_norm") else None,
             "temporally_confirmed": bool(det.get("temporally_confirmed", False)),
             "estimated_calories": int(det.get("estimated_calories") or get_class_calories(cls_id, 1)),
-        })
+        }
+        if det.get("use_base_conf"):
+            entry["use_base_conf"] = True
+        cloned.append(entry)
     return cloned
 
 
@@ -592,7 +595,7 @@ def run_hybrid_gemini_detection(
             else:
                 yolo_cal = extract_positive_calories(yd.get("estimated_calories"))
                 est_cal = yolo_cal if yolo_cal is not None else get_class_calories(yd["class_id"], 1)
-            fused.append({
+            fused_item = {
                 "class_id": yd["class_id"],
                 "display_name": gd["display_name"] or yd["display_name"],
                 "confidence": boosted_conf,
@@ -600,9 +603,12 @@ def run_hybrid_gemini_detection(
                 "polygon_norm": None,
                 "temporally_confirmed": False,
                 "estimated_calories": est_cal,
-            })
+            }
+            if gd.get("use_base_conf") or yd.get("use_base_conf"):
+                fused_item["use_base_conf"] = True
+            fused.append(fused_item)
         else:
-            fused.append({
+            yd_item = {
                 "class_id": yd["class_id"],
                 "display_name": yd["display_name"],
                 "confidence": float(yd["confidence"]),
@@ -610,12 +616,15 @@ def run_hybrid_gemini_detection(
                 "polygon_norm": yd.get("polygon_norm"),
                 "temporally_confirmed": bool(yd.get("temporally_confirmed", False)),
                 "estimated_calories": int(yd.get("estimated_calories") or get_class_calories(yd["class_id"], 1)),
-            })
+            }
+            if yd.get("use_base_conf"):
+                yd_item["use_base_conf"] = True
+            fused.append(yd_item)
 
     for g_idx, gd in enumerate(gemini_dets):
         if g_idx in matched_gemini_indices:
             continue
-        fused.append({
+        gd_item = {
             "class_id": gd["class_id"],
             "display_name": gd["display_name"],
             "confidence": float(gd["confidence"]),
@@ -623,7 +632,10 @@ def run_hybrid_gemini_detection(
             "polygon_norm": gd.get("polygon_norm"),
             "temporally_confirmed": bool(gd.get("temporally_confirmed", False)),
             "estimated_calories": int(gd.get("estimated_calories") or get_class_calories(gd["class_id"], 1)),
-        })
+        }
+        if gd.get("use_base_conf"):
+            gd_item["use_base_conf"] = True
+        fused.append(gd_item)
 
     deduped = apply_class_nms(fused, iou_threshold=float(iou_threshold))
     deduped = apply_cross_class_nms(deduped, iou_threshold=CROSS_CLASS_NMS_IOU)

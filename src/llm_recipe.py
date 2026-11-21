@@ -15,9 +15,11 @@ from src.cv.gemini_detector import get_cached_gemini_client
 from src.server.config import (
     GEMINI_RECIPE_MODEL,
     LLM_TIMEOUT_SECONDS,
+    NON_FOOD_LABELS,
     OUTPUTS_DIR,
     get_class_calories,
     get_display_name,
+    get_gemini_thinking_level,
     get_storage_zone,
     is_valid_food_class,
     normalize_class_id,
@@ -158,6 +160,29 @@ OFFLINE_RECIPE_BANK = [
 ]
 
 
+def resolve_inventory_class_id(item):
+    if isinstance(item, dict):
+        raw_cls = item.get("class_id")
+        raw_disp = item.get("display_name") or item.get("name")
+        if raw_cls is not None and str(raw_cls).strip():
+            cls_clean = str(raw_cls).strip().lower()
+            cls_spaced = cls_clean.replace("_", " ").replace("-", " ")
+            if cls_clean in NON_FOOD_LABELS or cls_spaced in NON_FOOD_LABELS:
+                return ""
+            if is_valid_food_class(raw_cls):
+                return normalize_class_id(raw_cls)
+        if raw_disp is not None and str(raw_disp).strip():
+            if is_valid_food_class(raw_disp):
+                return normalize_class_id(raw_disp)
+        return ""
+    if item is None:
+        return ""
+    raw_val = str(item).strip()
+    if not raw_val or not is_valid_food_class(raw_val):
+        return ""
+    return normalize_class_id(raw_val)
+
+
 def extract_normalized_inventory(inventory_items):
     normalized = []
     seen = set()
@@ -165,16 +190,9 @@ def extract_normalized_inventory(inventory_items):
         return normalized
 
     for item in inventory_items:
-        raw_val = None
-        if isinstance(item, dict):
-            raw_val = item.get("class_id") or item.get("display_name") or item.get("name")
-        else:
-            raw_val = str(item)
-        if not raw_val:
+        cls_id = resolve_inventory_class_id(item)
+        if not cls_id:
             continue
-        if not is_valid_food_class(raw_val):
-            continue
-        cls_id = normalize_class_id(raw_val)
         if cls_id not in seen:
             seen.add(cls_id)
             normalized.append(cls_id)
@@ -183,24 +201,149 @@ def extract_normalized_inventory(inventory_items):
     return normalized
 
 
+def extract_detailed_inventory(inventory_items):
+    detailed = []
+    if not inventory_items:
+        return detailed
+
+    for item in inventory_items:
+        cls_id = resolve_inventory_class_id(item)
+        if not cls_id:
+            continue
+
+        disp_name = get_display_name(cls_id)
+        qty = 1
+        cpu = None
+        est_kcal = None
+        zone = get_storage_zone(cls_id)
+
+        if isinstance(item, dict):
+            raw_disp = item.get("display_name")
+            disp_clean = " ".join(str(raw_disp or "").strip().split())
+            if disp_clean:
+                disp_name = disp_clean
+
+            raw_cnt = item.get("count", 1)
+            if not isinstance(raw_cnt, bool) and raw_cnt is not None:
+                try:
+                    qty = max(1, int(raw_cnt))
+                except (TypeError, ValueError):
+                    qty = 1
+
+            raw_cpu = item.get("calories_per_unit")
+            cpu_float = None
+            if raw_cpu is not None and not isinstance(raw_cpu, bool):
+                try:
+                    parsed_cpu = float(raw_cpu)
+                    if math.isfinite(parsed_cpu) and parsed_cpu > 0.0:
+                        cpu_float = parsed_cpu
+                        cpu = max(1, int(round(parsed_cpu)))
+                except (TypeError, ValueError):
+                    cpu = None
+
+            raw_est = item.get("estimated_calories")
+            est_from_raw = False
+            if raw_est is not None and not isinstance(raw_est, bool):
+                try:
+                    parsed_est = float(raw_est)
+                    if math.isfinite(parsed_est) and parsed_est > 0.0:
+                        est_kcal = max(1, int(round(parsed_est)))
+                        est_from_raw = True
+                except (TypeError, ValueError):
+                    est_kcal = None
+
+            if est_kcal is None:
+                if cpu_float is not None:
+                    est_kcal = max(1, int(round(cpu_float * qty)))
+                else:
+                    est_kcal = get_class_calories(cls_id, count=qty)
+
+            if cpu is None:
+                if est_from_raw:
+                    cpu = max(1, int(round(float(est_kcal) / float(qty))))
+                else:
+                    cpu = get_class_calories(cls_id, count=1)
+
+            raw_zone = str(item.get("storage_zone") or "").strip()
+            if raw_zone:
+                zone = raw_zone
+        else:
+            cpu = get_class_calories(cls_id, count=1)
+            est_kcal = get_class_calories(cls_id, count=1)
+
+        detailed.append({
+            "class_id": cls_id,
+            "display_name": disp_name,
+            "count": int(qty),
+            "calories_per_unit": int(cpu),
+            "estimated_calories": int(est_kcal),
+            "storage_zone": zone,
+        })
+
+    keyed = []
+    for idx, entry in enumerate(detailed):
+        keyed.append((entry["class_id"], entry["display_name"].lower(), idx, entry))
+    keyed.sort()
+
+    sorted_detailed = []
+    for item_tuple in keyed:
+        sorted_detailed.append(item_tuple[3])
+    return sorted_detailed
+
+
+def build_inventory_cache_key(inventory_items, normalized_classes):
+    has_custom_or_multi = False
+    if inventory_items:
+        for item in inventory_items:
+            if not isinstance(item, dict):
+                continue
+            cls_id = resolve_inventory_class_id(item)
+            if not cls_id:
+                continue
+            raw_disp = item.get("display_name")
+            disp_clean = " ".join(str(raw_disp or "").strip().split())
+            if disp_clean and disp_clean.lower() != get_display_name(cls_id).strip().lower():
+                has_custom_or_multi = True
+                break
+            raw_cnt = item.get("count", 1)
+            qty = 1
+            if not isinstance(raw_cnt, bool) and raw_cnt is not None:
+                try:
+                    qty = max(1, int(raw_cnt))
+                except (TypeError, ValueError):
+                    qty = 1
+            if qty > 1:
+                has_custom_or_multi = True
+                break
+
+    if has_custom_or_multi:
+        detailed = extract_detailed_inventory(inventory_items)
+        if detailed:
+            parts = []
+            for entry in detailed:
+                parts.append(f"{entry['class_id']}:{entry['display_name'].lower()}:{entry['count']}")
+            parts.sort()
+            return "|".join(parts)
+
+    return "|".join(normalized_classes)
+
+
 def compute_inventory_total_calories(inventory_items):
     if not inventory_items:
         return 0
     total_kcal = 0
     for item in inventory_items:
-        raw_val = None
+        cls_id = resolve_inventory_class_id(item)
+        if not cls_id:
+            continue
         qty = 1
         if isinstance(item, dict):
-            raw_val = item.get("class_id") or item.get("display_name") or item.get("name")
-            try:
-                qty = max(1, int(item.get("count", 1)))
-            except (TypeError, ValueError):
-                qty = 1
-        else:
-            raw_val = str(item)
-        if not raw_val or not is_valid_food_class(raw_val):
-            continue
-        cls_id = normalize_class_id(raw_val)
+            raw_cnt = item.get("count", 1)
+            if not isinstance(raw_cnt, bool) and raw_cnt is not None:
+                try:
+                    qty = max(1, int(raw_cnt))
+                except (TypeError, ValueError):
+                    qty = 1
         item_kcal = None
         if isinstance(item, dict):
             raw_est = item.get("estimated_calories")
@@ -231,21 +374,39 @@ def compute_recipe_calorie_fallback(
     fallback_classes,
     raw_ingredient_calories=None,
     raw_estimated_calories=None,
+    detailed_items=None,
 ):
+    detailed_cal_by_name = {}
+    if detailed_items:
+        for d_item in detailed_items:
+            d_name = str(d_item.get("display_name") or "").strip().lower()
+            if d_name:
+                detailed_cal_by_name[d_name] = int(
+                    d_item.get("calories_per_unit") or get_class_calories(d_item.get("class_id", ""), count=1)
+                )
+
     ing_cals = {}
     if isinstance(raw_ingredient_calories, dict) and len(raw_ingredient_calories) > 0:
         for k, v in raw_ingredient_calories.items():
             try:
                 val_int = max(0, int(round(float(v))))
             except (TypeError, ValueError):
-                val_int = get_class_calories(str(k), count=1)
+                key_lower = str(k).strip().lower()
+                if key_lower in detailed_cal_by_name:
+                    val_int = detailed_cal_by_name[key_lower]
+                else:
+                    val_int = get_class_calories(str(k), count=1)
             ing_cals[str(k)] = val_int
     else:
         for ing in matched_ingredients:
             ing_name = str(ing).strip()
             if not ing_name:
                 continue
-            ing_cals[ing_name] = get_class_calories(ing_name, count=1)
+            ing_lower = ing_name.lower()
+            if ing_lower in detailed_cal_by_name:
+                ing_cals[ing_name] = detailed_cal_by_name[ing_lower]
+            else:
+                ing_cals[ing_name] = get_class_calories(ing_name, count=1)
         if not ing_cals and fallback_classes:
             for c in fallback_classes[:3]:
                 ing_cals[get_display_name(c)] = get_class_calories(c, count=1)
@@ -264,7 +425,7 @@ def compute_recipe_calorie_fallback(
     return int(est_kcal), ing_cals
 
 
-def enrich_recipe_cards_calories(cards, fallback_classes):
+def enrich_recipe_cards_calories(cards, fallback_classes, detailed_items=None):
     enriched = []
     changed = False
     for card in cards:
@@ -280,6 +441,7 @@ def enrich_recipe_cards_calories(cards, fallback_classes):
             fallback_classes,
             raw_ingredient_calories=card_copy.get("ingredient_calories"),
             raw_estimated_calories=card_copy.get("estimated_calories"),
+            detailed_items=detailed_items,
         )
         card_copy["estimated_calories"] = est_kcal
         card_copy["ingredient_calories"] = ing_cals
@@ -309,8 +471,18 @@ def save_disk_recipe_cache(cache_dict):
         pass
 
 
-def build_offline_recipe_cards(normalized_classes):
+def build_offline_recipe_cards(normalized_classes, detailed_items=None):
     class_set = set(normalized_classes)
+    detailed_by_class = {}
+    if detailed_items:
+        for d_item in detailed_items:
+            c_id = d_item.get("class_id")
+            if not c_id:
+                continue
+            if c_id not in detailed_by_class:
+                detailed_by_class[c_id] = []
+            detailed_by_class[c_id].append(d_item)
+
     scored = []
 
     for idx, template in enumerate(OFFLINE_RECIPE_BANK):
@@ -328,11 +500,27 @@ def build_offline_recipe_cards(normalized_classes):
                 zones_set.add(get_storage_zone(c))
 
         matched_names = []
+        seen_names = set()
         ingredient_calories = {}
         for c in matched_cls:
-            disp = get_display_name(c)
-            matched_names.append(disp)
-            ingredient_calories[disp] = get_class_calories(c, count=1)
+            class_items = detailed_by_class.get(c)
+            if class_items:
+                for d_item in class_items:
+                    disp = str(d_item.get("display_name") or get_display_name(c))
+                    item_zone = d_item.get("storage_zone") or get_storage_zone(c)
+                    zones_set.add(item_zone)
+                    item_kcal = int(d_item.get("calories_per_unit") or get_class_calories(c, count=1))
+                    if disp not in seen_names:
+                        seen_names.add(disp)
+                        matched_names.append(disp)
+                    if disp not in ingredient_calories:
+                        ingredient_calories[disp] = item_kcal
+            else:
+                disp = get_display_name(c)
+                if disp not in seen_names:
+                    seen_names.add(disp)
+                    matched_names.append(disp)
+                ingredient_calories[disp] = get_class_calories(c, count=1)
 
         if not ingredient_calories:
             ingredient_calories = dict(template.get("ingredient_calories", {}))
@@ -377,21 +565,42 @@ def build_offline_recipe_cards(normalized_classes):
     return selected
 
 
-def build_llm_json_prompt(normalized_classes):
+def build_llm_json_prompt(normalized_classes, detailed_items=None):
     display_items = []
-    for c in normalized_classes:
-        zone = get_storage_zone(c)
-        name = get_display_name(c)
-        kcal = get_class_calories(c, count=1)
-        display_items.append(f"{name} ({zone}, ~{kcal} kcal)")
+    if detailed_items:
+        for item in detailed_items:
+            cls_id = item.get("class_id") or ""
+            name = item.get("display_name") or get_display_name(cls_id)
+            qty = max(1, int(item.get("count", 1)))
+            zone = item.get("storage_zone") or get_storage_zone(cls_id)
+            kcal = int(item.get("estimated_calories") or get_class_calories(cls_id, count=qty))
+            display_items.append(f"{name} x{qty} [{cls_id}] ({zone}, ~{kcal} kcal)")
+    else:
+        for c in normalized_classes:
+            zone = get_storage_zone(c)
+            name = get_display_name(c)
+            kcal = get_class_calories(c, count=1)
+            display_items.append(f"{name} ({zone}, ~{kcal} kcal)")
 
     joined_items = ", ".join(display_items)
     if not joined_items:
         joined_items = "Pasta & Noodles (Pantry, ~220 kcal), Canned Tomatoes (Pantry, ~70 kcal)"
 
+    if detailed_items:
+        instruction = (
+            "Generate exactly 3 practical zero-waste recipes tailored specifically to these exact named products and quantities "
+            "(for example, using cornstarch as a sauce thickener or crispy coating rather than a breakfast grain, "
+            "and referencing the specific product names in matched_ingredients and ingredient_calories) "
+            "using mostly these items plus basic salt, pepper, and cooking oil. "
+        )
+    else:
+        instruction = (
+            "Generate exactly 3 practical zero-waste recipes using mostly these items plus basic salt, pepper, and cooking oil. "
+        )
+
     prompt = (
         f"Available pantry and refrigerator ingredients: {joined_items}. "
-        "Generate exactly 3 practical zero-waste recipes using mostly these items plus basic salt, pepper, and cooking oil. "
+        f"{instruction}"
         "Return ONLY valid JSON as an array of 3 objects with keys: "
         "id (string), title (string), prep_time_mins (int), difficulty (string), "
         "estimated_calories (int kcal per serving), ingredient_calories (object mapping ingredient display name to int kcal), "
@@ -401,7 +610,7 @@ def build_llm_json_prompt(normalized_classes):
     return prompt
 
 
-def parse_llm_recipes_json(raw_text, fallback_classes):
+def parse_llm_recipes_json(raw_text, fallback_classes, detailed_items=None):
     if not raw_text:
         return None
     cleaned = raw_text.strip()
@@ -427,8 +636,14 @@ def parse_llm_recipes_json(raw_text, fallback_classes):
             continue
         matched = item.get("matched_ingredients") or []
         if not matched:
-            for c in fallback_classes[:3]:
-                matched.append(get_display_name(c))
+            if detailed_items:
+                for d_item in detailed_items[:3]:
+                    d_disp = d_item.get("display_name")
+                    if d_disp and d_disp not in matched:
+                        matched.append(d_disp)
+            else:
+                for c in fallback_classes[:3]:
+                    matched.append(get_display_name(c))
         steps = item.get("steps") or []
         if not steps:
             steps = ["Prepare ingredients.", "Cook over medium heat.", "Season and serve warm."]
@@ -437,6 +652,7 @@ def parse_llm_recipes_json(raw_text, fallback_classes):
             fallback_classes,
             raw_ingredient_calories=item.get("ingredient_calories"),
             raw_estimated_calories=item.get("estimated_calories"),
+            detailed_items=detailed_items,
         )
         cards.append({
             "id": str(item.get("id") or f"llm_recipe_{idx + 1}"),
@@ -453,7 +669,7 @@ def parse_llm_recipes_json(raw_text, fallback_classes):
         })
 
     if len(cards) < 3:
-        fallback_cards = build_offline_recipe_cards(fallback_classes)
+        fallback_cards = build_offline_recipe_cards(fallback_classes, detailed_items=detailed_items)
         for fc in fallback_cards:
             if len(cards) >= 3:
                 break
@@ -514,9 +730,14 @@ def query_live_llm_worker(prompt, gemini_key, openai_key):
                     "mime_type": "application/json",
                     "schema": recipe_schema,
                 },
+                generation_config={"thinking_level": get_gemini_thinking_level(GEMINI_RECIPE_MODEL)},
                 store=False,
             )
-            return interaction.output_text, GEMINI_RECIPE_MODEL
+            output_text = getattr(interaction, "output_text", None)
+            if getattr(interaction, "errors", None) and not output_text:
+                raise RuntimeError(str(interaction.errors))
+            return output_text, GEMINI_RECIPE_MODEL
+        raise RuntimeError("Gemini client is unavailable")
 
     if openai_key:
         from openai import OpenAI
@@ -533,28 +754,38 @@ def query_live_llm_worker(prompt, gemini_key, openai_key):
     return None, "offline_cache"
 
 
-def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_TIMEOUT_SECONDS):
+def generate_structured_recipes(
+    inventory_items,
+    api_key=None,
+    timeout_sec=LLM_TIMEOUT_SECONDS,
+    force_refresh=False,
+):
     start_time = time.perf_counter()
     total_inventory_calories = compute_inventory_total_calories(inventory_items)
     normalized_classes = extract_normalized_inventory(inventory_items)
+    detailed_items = extract_detailed_inventory(inventory_items)
     if not normalized_classes:
         normalized_classes = ["pasta_noodles", "canned_tomato"]
 
-    cache_key = "|".join(normalized_classes)
+    cache_key = build_inventory_cache_key(inventory_items, normalized_classes)
+    items_used = []
+    for it in detailed_items:
+        items_used.append(f"{it['display_name']} x{it['count']}")
 
     gemini_key = api_key or os.getenv("GEMINI_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
     if api_key and not os.getenv("GEMINI_API_KEY") and os.getenv("OPENAI_API_KEY"):
         openai_key = api_key
 
+    llm_error = None
     if gemini_key or openai_key:
-        prompt = build_llm_json_prompt(normalized_classes)
+        prompt = build_llm_json_prompt(normalized_classes, detailed_items=detailed_items)
         future = RECIPE_EXECUTOR.submit(query_live_llm_worker, prompt, gemini_key, openai_key)
         try:
             elapsed_before_wait = time.perf_counter() - start_time
             wait_timeout = max(0.05, float(timeout_sec) - elapsed_before_wait - 0.08)
             raw_text, source_name = future.result(timeout=wait_timeout)
-            cards = parse_llm_recipes_json(raw_text, normalized_classes)
+            cards = parse_llm_recipes_json(raw_text, normalized_classes, detailed_items=detailed_items)
             if cards:
                 RECIPE_MEMORY_CACHE[cache_key] = cards
                 disk_cache = load_disk_recipe_cache()
@@ -566,14 +797,26 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
                     "cached": False,
                     "latency_ms": round(elapsed_ms, 2),
                     "inventory_used": normalized_classes,
+                    "items_used": items_used,
                     "total_inventory_calories": int(total_inventory_calories),
                     "recipes": cards,
                 }
-        except (FuturesTimeoutError, Exception):
+            llm_error = "Live LLM returned empty or unparseable recipes"
+        except FuturesTimeoutError:
             future.cancel()
+            llm_error = f"Live LLM timed out after {float(timeout_sec):.1f}s"
+        except Exception as exc:
+            future.cancel()
+            llm_error = f"{type(exc).__name__}: {exc}"
+        if llm_error:
+            print(f"[llm_recipe] live LLM fallback: {llm_error}")
 
-    if cache_key in RECIPE_MEMORY_CACHE:
-        mem_cards, changed = enrich_recipe_cards_calories(RECIPE_MEMORY_CACHE[cache_key], normalized_classes)
+    if not force_refresh and cache_key in RECIPE_MEMORY_CACHE:
+        mem_cards, changed = enrich_recipe_cards_calories(
+            RECIPE_MEMORY_CACHE[cache_key],
+            normalized_classes,
+            detailed_items=detailed_items,
+        )
         if changed:
             RECIPE_MEMORY_CACHE[cache_key] = mem_cards
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
@@ -582,13 +825,18 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
             "cached": True,
             "latency_ms": round(elapsed_ms, 2),
             "inventory_used": normalized_classes,
+            "items_used": items_used,
             "total_inventory_calories": int(total_inventory_calories),
             "recipes": mem_cards,
         }
 
     disk_cache = load_disk_recipe_cache()
-    if cache_key in disk_cache:
-        disk_cards, changed = enrich_recipe_cards_calories(disk_cache[cache_key], normalized_classes)
+    if not force_refresh and cache_key in disk_cache:
+        disk_cards, changed = enrich_recipe_cards_calories(
+            disk_cache[cache_key],
+            normalized_classes,
+            detailed_items=detailed_items,
+        )
         RECIPE_MEMORY_CACHE[cache_key] = disk_cards
         if changed:
             disk_cache[cache_key] = disk_cards
@@ -599,11 +847,12 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
             "cached": True,
             "latency_ms": round(elapsed_ms, 2),
             "inventory_used": normalized_classes,
+            "items_used": items_used,
             "total_inventory_calories": int(total_inventory_calories),
             "recipes": disk_cards,
         }
 
-    offline_cards = build_offline_recipe_cards(normalized_classes)
+    offline_cards = build_offline_recipe_cards(normalized_classes, detailed_items=detailed_items)
     RECIPE_MEMORY_CACHE[cache_key] = offline_cards
     disk_cache[cache_key] = offline_cards
     save_disk_recipe_cache(disk_cache)
@@ -614,6 +863,7 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
         "cached": True,
         "latency_ms": round(elapsed_ms, 2),
         "inventory_used": normalized_classes,
+        "items_used": items_used,
         "total_inventory_calories": int(total_inventory_calories),
         "recipes": offline_cards,
     }

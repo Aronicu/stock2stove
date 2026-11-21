@@ -100,6 +100,14 @@ def reset_tracker_state(tracker_state):
     return tracker_state
 
 
+def build_inventory_item_key(class_id, display_name=None):
+    cls_id = normalize_class_id(class_id)
+    norm_disp = " ".join(str(display_name or "").strip().lower().split())
+    if not norm_disp:
+        norm_disp = " ".join(str(get_display_name(cls_id) or "").strip().lower().split())
+    return f"{cls_id}::{norm_disp}"
+
+
 def purge_class_from_tracker(tracker_state, class_id):
     if not isinstance(tracker_state, dict):
         return tracker_state
@@ -112,9 +120,20 @@ def purge_class_from_tracker(tracker_state, class_id):
         if not isinstance(frame_entry, dict):
             continue
         keys_to_remove = []
-        for key in frame_entry.keys():
-            norm_key = normalize_class_id(key)
-            if key == class_id or str(key).strip().lower() == raw_clean or (target_cls and norm_key == target_cls):
+        for key, info in frame_entry.items():
+            key_str = str(key)
+            key_prefix = key_str.split("::")[0]
+            norm_key = normalize_class_id(key_str)
+            norm_prefix = normalize_class_id(key_prefix)
+            entry_cls = ""
+            if isinstance(info, dict) and info.get("class_id"):
+                entry_cls = normalize_class_id(info.get("class_id"))
+            if (
+                key == class_id
+                or key_str.strip().lower() == raw_clean
+                or (target_cls and (norm_key == target_cls or norm_prefix == target_cls or entry_cls == target_cls))
+                or (raw_clean and key_prefix.strip().lower() == raw_clean)
+            ):
                 keys_to_remove.append(key)
         for key in keys_to_remove:
             del frame_entry[key]
@@ -164,12 +183,17 @@ def build_confirmed_inventory_from_window(
     for frame_entry in window:
         if not isinstance(frame_entry, dict):
             continue
-        for raw_cls, info in frame_entry.items():
+        for raw_key, info in frame_entry.items():
+            if not isinstance(info, dict):
+                continue
+            raw_cls = info.get("class_id") or str(raw_key).split("::")[0]
             if not is_valid_food_class(raw_cls):
                 continue
             cls_id = normalize_class_id(raw_cls)
             if not is_valid_food_class(cls_id) or cls_id in excluded_set:
                 continue
+            det_display_name = info.get("display_name") or get_display_name(cls_id)
+            item_key = info.get("item_key") or build_inventory_item_key(cls_id, det_display_name)
             info_crop = info.get("crop_jpeg_b64")
             cnt_val = max(1, int(info.get("count", 1)))
             conf_val = float(info.get("max_conf", 0.5))
@@ -186,30 +210,34 @@ def build_confirmed_inventory_from_window(
                 if fallback_cal is not None:
                     frame_unit_cals.append(fallback_cal)
 
-            if cls_id not in aggregate:
-                aggregate[cls_id] = {
+            if item_key not in aggregate:
+                aggregate[item_key] = {
+                    "class_id": cls_id,
+                    "item_key": item_key,
                     "hits": 1,
                     "counts": [cnt_val],
                     "max_conf": conf_val,
-                    "display_name": info.get("display_name") or get_display_name(cls_id),
+                    "display_name": det_display_name,
                     "crop_jpeg_b64": info_crop,
                     "unit_calories": list(frame_unit_cals),
                 }
             else:
-                aggregate[cls_id]["hits"] += 1
-                aggregate[cls_id]["counts"].append(cnt_val)
-                aggregate[cls_id]["unit_calories"].extend(frame_unit_cals)
-                if conf_val > aggregate[cls_id]["max_conf"]:
-                    aggregate[cls_id]["max_conf"] = conf_val
+                aggregate[item_key]["hits"] += 1
+                aggregate[item_key]["counts"].append(cnt_val)
+                aggregate[item_key]["unit_calories"].extend(frame_unit_cals)
+                if conf_val > aggregate[item_key]["max_conf"]:
+                    aggregate[item_key]["max_conf"] = conf_val
+                    aggregate[item_key]["display_name"] = det_display_name
                     if info_crop:
-                        aggregate[cls_id]["crop_jpeg_b64"] = info_crop
-                elif not aggregate[cls_id].get("crop_jpeg_b64") and info_crop:
-                    aggregate[cls_id]["crop_jpeg_b64"] = info_crop
+                        aggregate[item_key]["crop_jpeg_b64"] = info_crop
+                elif not aggregate[item_key].get("crop_jpeg_b64") and info_crop:
+                    aggregate[item_key]["crop_jpeg_b64"] = info_crop
 
     confirmed_inventory = []
-    sorted_class_ids = sorted(list(aggregate.keys()))
-    for cls_id in sorted_class_ids:
-        stats = aggregate[cls_id]
+    sorted_item_keys = sorted(list(aggregate.keys()))
+    for item_key in sorted_item_keys:
+        stats = aggregate[item_key]
+        cls_id = stats["class_id"]
         is_hit_confirmed = stats["hits"] >= resolved_min_hits
         is_fast_confirmed = fast_confirm_conf is not None and float(stats["max_conf"]) >= float(fast_confirm_conf)
         if is_hit_confirmed or is_fast_confirmed:
@@ -219,6 +247,7 @@ def build_confirmed_inventory_from_window(
             estimated_calories = int(calories_per_unit * consensus_count)
             confirmed_inventory.append({
                 "class_id": cls_id,
+                "item_key": item_key,
                 "display_name": stats["display_name"],
                 "count": consensus_count,
                 "max_conf": round(float(stats["max_conf"]), 2),
@@ -262,7 +291,7 @@ def update_temporal_tracker(
         cls_id = normalize_class_id(raw_cls)
         if not is_valid_food_class(cls_id) or cls_id in excluded_set:
             continue
-        req_conf = get_class_conf_threshold(cls_id, active_conf)
+        req_conf = active_conf if det.get("use_base_conf") else get_class_conf_threshold(cls_id, active_conf)
         if conf_val < req_conf:
             continue
         disp = det.get("display_name") or get_display_name(cls_id)
@@ -294,25 +323,30 @@ def update_temporal_tracker(
         unit_cal = extract_positive_calories(det.get("estimated_calories"))
         if unit_cal is None:
             unit_cal = get_class_calories(cls_id, 1)
-        if cls_id not in frame_class_summary:
-            frame_class_summary[cls_id] = {
+        det_display_name = det.get("display_name") or get_display_name(cls_id)
+        item_key = build_inventory_item_key(cls_id, det_display_name)
+        if item_key not in frame_class_summary:
+            frame_class_summary[item_key] = {
+                "class_id": cls_id,
+                "item_key": item_key,
                 "count": 1,
                 "max_conf": conf_val,
-                "display_name": det["display_name"],
+                "display_name": det_display_name,
                 "crop_jpeg_b64": crop_b64,
                 "unit_calories": [unit_cal],
                 "estimated_calories": unit_cal,
             }
         else:
-            frame_class_summary[cls_id]["count"] += 1
-            frame_class_summary[cls_id]["unit_calories"].append(unit_cal)
-            if conf_val > frame_class_summary[cls_id]["max_conf"]:
-                frame_class_summary[cls_id]["max_conf"] = conf_val
-                frame_class_summary[cls_id]["estimated_calories"] = unit_cal
+            frame_class_summary[item_key]["count"] += 1
+            frame_class_summary[item_key]["unit_calories"].append(unit_cal)
+            if conf_val > frame_class_summary[item_key]["max_conf"]:
+                frame_class_summary[item_key]["max_conf"] = conf_val
+                frame_class_summary[item_key]["display_name"] = det_display_name
+                frame_class_summary[item_key]["estimated_calories"] = unit_cal
                 if crop_b64:
-                    frame_class_summary[cls_id]["crop_jpeg_b64"] = crop_b64
-            elif not frame_class_summary[cls_id].get("crop_jpeg_b64") and crop_b64:
-                frame_class_summary[cls_id]["crop_jpeg_b64"] = crop_b64
+                    frame_class_summary[item_key]["crop_jpeg_b64"] = crop_b64
+            elif not frame_class_summary[item_key].get("crop_jpeg_b64") and crop_b64:
+                frame_class_summary[item_key]["crop_jpeg_b64"] = crop_b64
 
     tracker_state["frames_processed"] = int(tracker_state.get("frames_processed", 0)) + 1
     tracker_state["window"].append(frame_class_summary)
@@ -325,12 +359,16 @@ def update_temporal_tracker(
     )
 
     confirmed_set = set()
+    confirmed_keys = set()
     for item in confirmed_inventory:
         confirmed_set.add(item["class_id"])
+        item_key = item.get("item_key") or build_inventory_item_key(item["class_id"], item.get("display_name"))
+        confirmed_keys.add(item_key)
 
     updated_detections = []
     for det in deduped:
-        is_confirmed = det["class_id"] in confirmed_set
+        det_item_key = build_inventory_item_key(det["class_id"], det.get("display_name"))
+        is_confirmed = det_item_key in confirmed_keys or det["class_id"] in confirmed_set
         det_cal = extract_positive_calories(det.get("estimated_calories"))
         if det_cal is None:
             det_cal = get_class_calories(det["class_id"], 1)

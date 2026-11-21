@@ -62,7 +62,7 @@ def auto_label_image_with_meta(
     conf_threshold=0.45,
     model_path=None,
     backend="yolo_world",
-    gemini_timeout_sec=15.0,
+    gemini_timeout_sec=25.0,
 ):
     backend_name = str(backend).strip().lower()
     if bgr_image is None or bgr_image.size == 0:
@@ -142,7 +142,7 @@ def auto_label_image(
     conf_threshold=0.45,
     model_path=None,
     backend="yolo_world",
-    gemini_timeout_sec=15.0,
+    gemini_timeout_sec=25.0,
 ):
     annotations, _ = auto_label_image_with_meta(
         bgr_image,
@@ -160,7 +160,7 @@ def auto_label_directory(
     conf_threshold=0.45,
     model_path=None,
     backend="yolo_world",
-    gemini_timeout_sec=15.0,
+    gemini_timeout_sec=25.0,
 ):
     input_path = str(input_dir)
     output_path = str(output_dir)
@@ -259,7 +259,7 @@ def main():
     parser.add_argument("--conf", type=float, default=0.45)
     parser.add_argument("--model", type=str, default="models/yolov8s-worldv2.pt")
     parser.add_argument("--backend", type=str, choices=["yolo_world", "gemini"], default="yolo_world")
-    parser.add_argument("--gemini-timeout", type=float, default=15.0)
+    parser.add_argument("--gemini-timeout", type=float, default=25.0)
     args = parser.parse_args()
 
     summary = auto_label_directory(

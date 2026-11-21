@@ -160,6 +160,13 @@ export function getClassMeta(classId) {
   }
 }
 
+export function buildBasketItemKey(classId, displayName) {
+  const normId = normalizeClassId(classId)
+  const rawDisp = String(displayName || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  const normDisp = rawDisp || getClassMeta(normId).display_name.toLowerCase()
+  return `${normId}::${normDisp}`
+}
+
 export function getCaloriesPerUnit(classId) {
   const canonical = normalizeClassId(classId)
   if (Object.prototype.hasOwnProperty.call(CLASS_CALORIE_MAP, canonical)) {

@@ -362,10 +362,47 @@
   ],
   "canned_tomato|pasta_noodles": [
     {
-      "id": "recipe_arrabbiata_tuna",
-      "title": "One-Pan Pantry Tuna Arrabbiata Pasta",
+      "id": "rec-1",
+      "title": "Simple Pantry Tomato Pasta",
       "prep_time_mins": 15,
       "difficulty": "Easy",
+      "estimated_calories": 410,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Canned Tomatoes": 70,
+        "Cooking Oil": 120
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Canned Tomatoes",
+        "Pasta & Noodles"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Boil the pasta in salted water until al dente, reserving a quarter cup of cooking water before draining.",
+        "Heat cooking oil in a skillet over medium heat, add the canned tomatoes with a pinch of salt and pepper, and simmer for 5 minutes while crushing the tomatoes.",
+        "Pour a splash of the reserved pasta water into the tomato can to rinse out any remaining sauce and add it to the skillet.",
+        "Toss the drained pasta into the simmering sauce until evenly coated and serve warm."
+      ],
+      "zero_waste_tip": "Use starchy pasta cooking water to rinse the inside of the tomato can so every drop of tomato sauce makes it into your meal."
+    },
+    {
+      "id": "rec-2",
+      "title": "Crispy Skillet Tomato Noodles",
+      "prep_time_mins": 20,
+      "difficulty": "Easy",
+      "estimated_calories": 410,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Canned Tomatoes": 70,
+        "Cooking Oil": 120
+      },
       "storage_zones_used": [
         "Pantry"
       ],
@@ -376,77 +413,46 @@
       "additional_staples": [
         "Cooking Oil",
         "Salt",
-        "Black Pepper",
-        "Chili Flakes"
+        "Black Pepper"
       ],
       "steps": [
-        "Boil pasta or noodles in salted water until al dente, reserving 1/4 cup pasta water.",
-        "Warm oil in a skillet, pour in canned tomatoes, and simmer for 5 minutes until thickened.",
-        "Flake drained canned tuna or meat into the simmering tomato sauce.",
-        "Toss drained pasta into the skillet with reserved water and serve hot."
+        "Cook the pasta in salted boiling water until just tender, then drain thoroughly.",
+        "Warm cooking oil in a wide skillet and pan-fry the drained pasta undisturbed for 3 minutes until golden and crisp on the bottom.",
+        "Add the canned tomatoes, salt, and black pepper to the skillet, tossing to coat the crispy noodles as the sauce thickens.",
+        "Continue cooking for 2 minutes until the tomatoes glaze the noodles, then serve immediately."
       ],
-      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce.",
-      "estimated_calories": 290,
+      "zero_waste_tip": "This method is ideal for reviving slightly stale or leftover cooked pasta from earlier in the week by crisping it in oil."
+    },
+    {
+      "id": "rec-3",
+      "title": "Rustic Tomato Noodle Soup",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 350,
       "ingredient_calories": {
+        "Canned Tomatoes": 70,
         "Pasta & Noodles": 220,
-        "Canned Tomatoes": 70
-      }
-    },
-    {
-      "id": "recipe_creamy_fridge_pasta",
-      "title": "Creamy Garlic Dairy & Vegetable Skillet Pasta",
-      "prep_time_mins": 18,
-      "difficulty": "Easy",
+        "Cooking Oil": 60
+      },
       "storage_zones_used": [
         "Pantry"
       ],
       "matched_ingredients": [
+        "Canned Tomatoes",
         "Pasta & Noodles"
-      ],
-      "additional_staples": [
-        "Salt",
-        "Black Pepper",
-        "Cooking Oil"
-      ],
-      "steps": [
-        "Cook pasta in salted boiling water until tender, then drain.",
-        "Saute diced fresh produce (onions, tomatoes, or greens) in oil over medium heat for 4 minutes.",
-        "Lower heat and stir in milk, cheese, or butter until a smooth pan sauce forms.",
-        "Fold the cooked pasta into the creamy vegetable sauce and season to taste."
-      ],
-      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste.",
-      "estimated_calories": 220,
-      "ingredient_calories": {
-        "Pasta & Noodles": 220
-      }
-    },
-    {
-      "id": "recipe_shakshuka_eggs",
-      "title": "Rustic Skillet Tomato & Poached Eggs (Shakshuka)",
-      "prep_time_mins": 12,
-      "difficulty": "Easy",
-      "storage_zones_used": [
-        "Pantry"
-      ],
-      "matched_ingredients": [
-        "Canned Tomatoes"
       ],
       "additional_staples": [
         "Cooking Oil",
         "Salt",
-        "Black Pepper"
+        "Black Pepper",
+        "Water"
       ],
       "steps": [
-        "Saute chopped fresh produce in a skillet with oil until softened.",
-        "Pour in canned tomatoes, season with salt and pepper, and simmer for 5 minutes.",
-        "Make gentle wells in the tomato sauce and crack eggs directly into each well.",
-        "Cover skillet and cook on low for 4 to 5 minutes until egg whites set."
+        "Heat cooking oil in a pot over medium heat, add the canned tomatoes with two cans worth of water, and season with salt and pepper.",
+        "Bring the mixture to a gentle boil and add the pasta, breaking longer noodles into bite-sized pieces.",
+        "Simmer for 8 to 10 minutes until the pasta is tender and the starches naturally thicken the tomato broth."
       ],
-      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce.",
-      "estimated_calories": 70,
-      "ingredient_calories": {
-        "Canned Tomatoes": 70
-      }
+      "zero_waste_tip": "Gather broken bits and small remnants from the bottom of different pasta bags to use up odds and ends in one pot."
     }
   ],
   "alien_food|eggs|pasta_noodles": [
@@ -1122,6 +1128,918 @@
         "Toss drained pasta into the skillet with reserved water and serve hot."
       ],
       "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce."
+    }
+  ],
+  "canned_tomato|canned_tuna_meat|cereal_grains": [
+    {
+      "id": "recipe_1",
+      "title": "Savory Tomato and Tuna Grain Bowl",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 480,
+      "ingredient_calories": {
+        "Canned Tomatoes": 70,
+        "Canned Tuna & Meat": 180,
+        "Cereal & Grains": 190,
+        "Cooking Oil": 40
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Canned Tomatoes",
+        "Canned Tuna & Meat",
+        "Cereal & Grains"
+      ],
+      "additional_staples": [
+        "Salt",
+        "Pepper",
+        "Cooking Oil",
+        "Water"
+      ],
+      "steps": [
+        "Simmer the cereal & grains in water and the liquid drained from the canned tomatoes until tender.",
+        "Heat cooking oil in a skillet, add the canned tomatoes, and season with salt and pepper for 5 minutes.",
+        "Fold in the drained canned tuna & meat until warmed through.",
+        "Serve the savory tomato tuna mixture over the cooked grains."
+      ],
+      "zero_waste_tip": "Use the flavorful liquid from the canned tomatoes as part of the cooking liquid for the grains instead of pouring it down the drain."
+    },
+    {
+      "id": "recipe_2",
+      "title": "Pan-Seared Tuna Grain Cakes with Tomato Sauce",
+      "prep_time_mins": 20,
+      "difficulty": "Medium",
+      "estimated_calories": 500,
+      "ingredient_calories": {
+        "Canned Tomatoes": 70,
+        "Canned Tuna & Meat": 180,
+        "Cereal & Grains": 190,
+        "Cooking Oil": 60
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Canned Tomatoes",
+        "Canned Tuna & Meat",
+        "Cereal & Grains"
+      ],
+      "additional_staples": [
+        "Salt",
+        "Pepper",
+        "Cooking Oil",
+        "Water"
+      ],
+      "steps": [
+        "Cook the cereal & grains in water until soft and sticky, then cool slightly and mix with flaked canned tuna & meat, salt, and pepper.",
+        "Shape the mixture into firm patties and sear in a skillet with cooking oil for 3 minutes per side until golden.",
+        "Remove the patties and pour the canned tomatoes into the same hot pan, simmering for 4 minutes to scrape up browned bits.",
+        "Spoon the warm tomato sauce over the crispy grain cakes and serve."
+      ],
+      "zero_waste_tip": "If your canned tuna is packed in oil, use that oil to sear the cakes instead of fresh cooking oil to maximize flavor and eliminate waste."
+    },
+    {
+      "id": "recipe_3",
+      "title": "Hearty Tomato and Savory Grain Porridge",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 470,
+      "ingredient_calories": {
+        "Canned Tomatoes": 70,
+        "Canned Tuna & Meat": 180,
+        "Cereal & Grains": 190,
+        "Cooking Oil": 30
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Canned Tomatoes",
+        "Canned Tuna & Meat",
+        "Cereal & Grains"
+      ],
+      "additional_staples": [
+        "Salt",
+        "Pepper",
+        "Cooking Oil",
+        "Water"
+      ],
+      "steps": [
+        "Combine cereal & grains, canned tomatoes with their juices, and water in a saucepan and simmer for 10 minutes until thick and creamy.",
+        "Stir in a drizzle of cooking oil, salt, and pepper to taste.",
+        "Top the warm savory porridge with flaked canned tuna & meat and serve immediately."
+      ],
+      "zero_waste_tip": "Swirl the cooking water inside the empty tomato can before adding it to the pot to capture every last bit of tomato puree."
+    }
+  ],
+  "canned_tomato:canned tomatoes:2|eggs:eggs:6|pasta_noodles:pasta & noodles:1": [
+    {
+      "id": "recipe_1",
+      "title": "Savory Tomato & Egg Stir-Fried Noodles",
+      "prep_time_mins": 20,
+      "difficulty": "Easy",
+      "estimated_calories": 506,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Eggs": 156,
+        "Canned Tomatoes": 70,
+        "Cooking Oil": 60
+      },
+      "storage_zones_used": [
+        "Pantry",
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Pasta & Noodles",
+        "Eggs",
+        "Canned Tomatoes"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Water"
+      ],
+      "steps": [
+        "Boil the Pasta & Noodles in salted water until al dente, then drain and reserve a splash of the starchy cooking water.",
+        "Heat half the cooking oil in a skillet over medium heat, scramble 2 Eggs until just set, and transfer them to a plate.",
+        "Add the remaining oil and 1 can of Canned Tomatoes (with juices) to the skillet, simmering until slightly thickened and seasoned with salt and pepper.",
+        "Toss the cooked noodles, scrambled eggs, and a splash of reserved pasta water into the tomato sauce until glossy and heated through."
+      ],
+      "zero_waste_tip": "Save the starchy pasta cooking water to emulsify the canned tomato sauce, and refrigerate any unused second can of tomatoes in a sealed glass jar for up to 4 days."
+    },
+    {
+      "id": "recipe_2",
+      "title": "Skillet Poached Eggs in Spiced Tomato Sauce",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 356,
+      "ingredient_calories": {
+        "Canned Tomatoes": 140,
+        "Eggs": 156,
+        "Cooking Oil": 60
+      },
+      "storage_zones_used": [
+        "Pantry",
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Canned Tomatoes",
+        "Eggs"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Heat cooking oil in a medium skillet over medium heat and pour in both cans of Canned Tomatoes, breaking up any whole pieces with a spoon.",
+        "Season the tomatoes generously with salt and black pepper, then simmer for 6 to 8 minutes until the sauce reduces and thickens.",
+        "Use the back of a spoon to make 2 small wells in the sauce, crack an Egg into each well, and season the tops with a pinch of salt.",
+        "Cover the skillet with a lid and cook for 4 to 5 minutes until the egg whites are set and the yolks remain runny."
+      ],
+      "zero_waste_tip": "Rinse the inside of the empty tomato cans with a tablespoon of water and pour it into the simmering skillet so not a drop of tomato juice goes to waste."
+    },
+    {
+      "id": "recipe_3",
+      "title": "Crispy Tomato & Noodle Frittata",
+      "prep_time_mins": 25,
+      "difficulty": "Medium",
+      "estimated_calories": 322,
+      "ingredient_calories": {
+        "Pasta & Noodles": 110,
+        "Eggs": 117,
+        "Canned Tomatoes": 35,
+        "Cooking Oil": 60
+      },
+      "storage_zones_used": [
+        "Pantry",
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Pasta & Noodles",
+        "Eggs",
+        "Canned Tomatoes"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Cook the Pasta & Noodles in salted water until tender, drain well, and let cool slightly; meanwhile, whisk 3 Eggs with salt and pepper in a bowl.",
+        "Heat cooking oil in an oven-safe or nonstick skillet over medium heat, add 1 can of drained Canned Tomatoes, and saute for 3 minutes to evaporate excess moisture.",
+        "Stir the cooked noodles into the skillet with the tomatoes, spread into an even layer, and pour the whisked eggs evenly over the top.",
+        "Cook undisturbed over medium-low heat for 6 to 8 minutes until the edges crisp and the center sets, then flip onto a plate to brown the other side for 2 minutes before slicing into 2 servings."
+      ],
+      "zero_waste_tip": "Strain the liquid from the canned tomatoes before adding them to the frittata and save that tomato broth in the freezer for your next soup or grain dish."
+    }
+  ],
+  "cereal_grains:cereal & grains:1|coffee_condiment:coffee & condiments:2": [
+    {
+      "id": "recipe_1",
+      "title": "Crispy Savory Cereal & Grains Pan-Crisps",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 260,
+      "ingredient_calories": {
+        "Cereal & Grains": 190,
+        "Coffee & Condiments": 30,
+        "Cooking Oil": 40
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Cereal & Grains",
+        "Coffee & Condiments"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Lightly crush Cereal & Grains in a bowl and toss with a pinch of salt, black pepper, and a splash of Coffee & Condiments.",
+        "Heat cooking oil in a skillet over medium heat until shimmering.",
+        "Press the seasoned mixture into small patties and pan-fry for 3 minutes per side until golden and crisp.",
+        "Serve warm with an extra drizzle of Coffee & Condiments for dipping."
+      ],
+      "zero_waste_tip": "Use any leftover crushed crumbs at the bottom of the Cereal & Grains box as a crunchy topping for future meals."
+    },
+    {
+      "id": "recipe_2",
+      "title": "Spiced Coffee & Condiments Glazed Grain Bowl",
+      "prep_time_mins": 20,
+      "difficulty": "Easy",
+      "estimated_calories": 250,
+      "ingredient_calories": {
+        "Cereal & Grains": 190,
+        "Coffee & Condiments": 40,
+        "Cooking Oil": 20
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Cereal & Grains",
+        "Coffee & Condiments"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Water"
+      ],
+      "steps": [
+        "Simmer Cereal & Grains in salted water for 10 to 12 minutes until tender, then drain any excess liquid.",
+        "In a small pan, warm cooking oil and whisk in Coffee & Condiments with black pepper to form a glossy glaze.",
+        "Toss the cooked Cereal & Grains in the warm glaze until evenly coated and heated through."
+      ],
+      "zero_waste_tip": "Save any remaining glaze in the pan by swirling in a splash of warm water and pouring it directly over the bowl."
+    },
+    {
+      "id": "recipe_3",
+      "title": "Toasted Cereal & Grains Crunch with Coffee & Condiments Drizzle",
+      "prep_time_mins": 10,
+      "difficulty": "Easy",
+      "estimated_calories": 245,
+      "ingredient_calories": {
+        "Cereal & Grains": 190,
+        "Coffee & Condiments": 35,
+        "Cooking Oil": 20
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Cereal & Grains",
+        "Coffee & Condiments"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Heat cooking oil in a dry skillet over medium-low heat and add Cereal & Grains.",
+        "Toast for 4 to 5 minutes, stirring frequently, until fragrant and deeply golden.",
+        "Season with salt and black pepper, transfer to a bowl, and finish with a drizzle of Coffee & Condiments."
+      ],
+      "zero_waste_tip": "Store any extra toasted Cereal & Grains in an airtight jar in the pantry to keep it crisp for up to a week."
+    }
+  ],
+  "canned_tomato:canned tomatoes:2|cereal_grains:cereal & grains:1|coffee_condiment:coffee & condiments:2|pasta_noodles:pasta & noodles:2": [
+    {
+      "id": "recipe-1",
+      "title": "Rich Tomato and Condiment Pantry Pasta",
+      "prep_time_mins": 20,
+      "difficulty": "Easy",
+      "estimated_calories": 480,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Canned Tomatoes": 140,
+        "Coffee & Condiments": 45,
+        "Cooking Oil": 75
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Pasta & Noodles",
+        "Canned Tomatoes",
+        "Coffee & Condiments"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Water"
+      ],
+      "steps": [
+        "Bring a pot of salted water to a boil and cook one portion of Pasta & Noodles until al dente, reserving half a cup of pasta cooking water.",
+        "Heat cooking oil in a skillet over medium heat, add one can of Canned Tomatoes, and simmer for 8 minutes until slightly thickened.",
+        "Stir in a spoonful of Coffee & Condiments for depth of flavor along with salt and black pepper.",
+        "Toss the cooked Pasta & Noodles into the sauce with a splash of reserved pasta water until glossy and serve hot."
+      ],
+      "zero_waste_tip": "Swirl a little hot pasta water inside the empty Canned Tomatoes can to capture every last drop of tomato juice for the sauce."
+    },
+    {
+      "id": "recipe-2",
+      "title": "Toasted Cereal & Grains Crispy Tomato Noodle Skillet",
+      "prep_time_mins": 25,
+      "difficulty": "Easy",
+      "estimated_calories": 515,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Cereal & Grains": 190,
+        "Canned Tomatoes": 70,
+        "Cooking Oil": 35
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Pasta & Noodles",
+        "Cereal & Grains",
+        "Canned Tomatoes"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Water"
+      ],
+      "steps": [
+        "Toast Cereal & Grains in a dry skillet over medium heat for 3 minutes until fragrant and golden, then set aside as a crunchy topping.",
+        "Boil Pasta & Noodles in salted water until tender, then drain well.",
+        "In the same skillet, heat cooking oil and simmer half a can of Canned Tomatoes with salt and black pepper for 5 minutes.",
+        "Fold the cooked Pasta & Noodles into the tomato mixture, top with the toasted Cereal & Grains for texture, and serve immediately."
+      ],
+      "zero_waste_tip": "Store any leftover toasted Cereal & Grains in an airtight jar to use as a quick crunchy topping for future soups or salads."
+    },
+    {
+      "id": "recipe-3",
+      "title": "One-Pot Tomato, Grain, and Noodle Pantry Soup",
+      "prep_time_mins": 25,
+      "difficulty": "Easy",
+      "estimated_calories": 465,
+      "ingredient_calories": {
+        "Canned Tomatoes": 140,
+        "Cereal & Grains": 95,
+        "Pasta & Noodles": 140,
+        "Coffee & Condiments": 45,
+        "Cooking Oil": 45
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Canned Tomatoes",
+        "Cereal & Grains",
+        "Pasta & Noodles",
+        "Coffee & Condiments"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Water"
+      ],
+      "steps": [
+        "Heat cooking oil in a pot over medium heat, add Canned Tomatoes, and mash lightly with a spoon.",
+        "Pour in 3 cups of water, add Cereal & Grains and a splash of Coffee & Condiments, then bring to a gentle simmer for 10 minutes.",
+        "Break Pasta & Noodles into bite-sized pieces, stir them into the pot, and cook for another 8 minutes until tender.",
+        "Season generously with salt and black pepper before ladling into bowls."
+      ],
+      "zero_waste_tip": "Use the remaining liquid from rinsing the Coffee & Condiments bottle with warm water to add extra savory richness directly to the soup broth."
+    }
+  ],
+  "canned_tomato:canned tomatoes:2|eggs:eggs:3|pasta_noodles:pasta & noodles:1": [
+    {
+      "id": "recipe_1",
+      "title": "Skillet Poached Eggs in Canned Tomatoes",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 266,
+      "ingredient_calories": {
+        "Canned Tomatoes": 70,
+        "Eggs": 156,
+        "Cooking Oil": 40
+      },
+      "storage_zones_used": [
+        "Pantry",
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Canned Tomatoes",
+        "Eggs"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Heat 1 teaspoon of cooking oil in a medium skillet over medium heat, then pour in 1 can of Canned Tomatoes with its juices and season with salt and black pepper.",
+        "Simmer the Canned Tomatoes for 5 to 7 minutes until slightly thickened, stirring occasionally.",
+        "Make two shallow wells in the tomato sauce and crack 2 Eggs directly into the wells.",
+        "Cover the skillet and cook for 4 to 5 minutes until the egg whites are set and the yolks remain softly runny, then serve warm."
+      ],
+      "zero_waste_tip": "Use the entire contents of the Canned Tomatoes including the packing liquid to create a flavorful simmering base, and rinse the can with a splash of water to add to the pan if the sauce reduces too quickly."
+    },
+    {
+      "id": "recipe_2",
+      "title": "Silky Tomato & Egg Emulsified Pasta",
+      "prep_time_mins": 20,
+      "difficulty": "Medium",
+      "estimated_calories": 408,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Canned Tomatoes": 70,
+        "Eggs": 78,
+        "Cooking Oil": 40
+      },
+      "storage_zones_used": [
+        "Pantry",
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Pasta & Noodles",
+        "Canned Tomatoes",
+        "Eggs"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Water"
+      ],
+      "steps": [
+        "Boil 1 package of Pasta & Noodles in salted water according to package directions, reserving 1/4 cup of starchy pasta water before draining.",
+        "In a skillet, heat 1 teaspoon of cooking oil and simmer 1 can of Canned Tomatoes with salt and black pepper for 6 minutes until thickened.",
+        "Whisk 1 Egg in a small bowl, then temper it by slowly stirring in 2 tablespoons of the warm reserved pasta water.",
+        "Remove the tomato skillet from heat, toss in the drained Pasta & Noodles, and quickly stir in the tempered egg mixture until a glossy, creamy tomato sauce coats the noodles."
+      ],
+      "zero_waste_tip": "Save the starchy pasta cooking water instead of pouring it down the drain; it binds the Canned Tomatoes and Egg into a smooth, restaurant-style sauce without needing butter or cream."
+    },
+    {
+      "id": "recipe_3",
+      "title": "Crispy Tomato-Glazed Pasta Frittata",
+      "prep_time_mins": 22,
+      "difficulty": "Easy",
+      "estimated_calories": 292,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Eggs": 234,
+        "Canned Tomatoes": 70,
+        "Cooking Oil": 60
+      },
+      "storage_zones_used": [
+        "Pantry",
+        "Refrigerator"
+      ],
+      "matched_ingredients": [
+        "Pasta & Noodles",
+        "Eggs",
+        "Canned Tomatoes"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Water"
+      ],
+      "steps": [
+        "Cook 1 package of Pasta & Noodles in salted boiling water until al dente, drain well, and let cool slightly.",
+        "Beat 3 Eggs in a bowl with salt, black pepper, and half a can of drained Canned Tomatoes, then fold in the cooked Pasta & Noodles.",
+        "Heat 1.5 teaspoons of cooking oil in a nonstick skillet over medium-low heat, pour in the pasta and egg mixture, and press down evenly.",
+        "Cook covered for 6 to 8 minutes until the bottom is golden and crispy, then flip onto a plate, slide back in to brown the other side for 3 minutes, and serve with the remaining warmed Canned Tomatoes on top."
+      ],
+      "zero_waste_tip": "This frittata is an ideal way to use up all 3 Eggs and any leftover cooked Pasta & Noodles at once, while the remaining Canned Tomatoes double as a fresh, zero-waste dipping sauce."
+    }
+  ],
+  "canned_tomato:mutti:1|pasta_noodles:barilla:1": [
+    {
+      "id": "recipe_arrabbiata_tuna",
+      "title": "One-Pan Pantry Tuna Arrabbiata Pasta",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 475,
+      "ingredient_calories": {
+        "Barilla": 380,
+        "Mutti": 95
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Barilla",
+        "Mutti"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Chili Flakes"
+      ],
+      "steps": [
+        "Boil pasta or noodles in salted water until al dente, reserving 1/4 cup pasta water.",
+        "Warm oil in a skillet, pour in canned tomatoes, and simmer for 5 minutes until thickened.",
+        "Flake drained canned tuna or meat into the simmering tomato sauce.",
+        "Toss drained pasta into the skillet with reserved water and serve hot."
+      ],
+      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce."
+    },
+    {
+      "id": "recipe_creamy_fridge_pasta",
+      "title": "Creamy Garlic Dairy & Vegetable Skillet Pasta",
+      "prep_time_mins": 18,
+      "difficulty": "Easy",
+      "estimated_calories": 380,
+      "ingredient_calories": {
+        "Barilla": 380
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Barilla"
+      ],
+      "additional_staples": [
+        "Salt",
+        "Black Pepper",
+        "Cooking Oil"
+      ],
+      "steps": [
+        "Cook pasta in salted boiling water until tender, then drain.",
+        "Saute diced fresh produce (onions, tomatoes, or greens) in oil over medium heat for 4 minutes.",
+        "Lower heat and stir in milk, cheese, or butter until a smooth pan sauce forms.",
+        "Fold the cooked pasta into the creamy vegetable sauce and season to taste."
+      ],
+      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste."
+    },
+    {
+      "id": "recipe_shakshuka_eggs",
+      "title": "Rustic Skillet Tomato & Poached Eggs (Shakshuka)",
+      "prep_time_mins": 12,
+      "difficulty": "Easy",
+      "estimated_calories": 95,
+      "ingredient_calories": {
+        "Mutti": 95
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Mutti"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Saute chopped fresh produce in a skillet with oil until softened.",
+        "Pour in canned tomatoes, season with salt and pepper, and simmer for 5 minutes.",
+        "Make gentle wells in the tomato sauce and crack eggs directly into each well.",
+        "Cover skillet and cook on low for 4 to 5 minutes until egg whites set."
+      ],
+      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce."
+    }
+  ],
+  "pasta_noodles:de cecco:1": [
+    {
+      "id": "recipe_arrabbiata_tuna",
+      "title": "One-Pan Pantry Tuna Arrabbiata Pasta",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 310,
+      "ingredient_calories": {
+        "De Cecco": 310
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "De Cecco"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper",
+        "Chili Flakes"
+      ],
+      "steps": [
+        "Boil pasta or noodles in salted water until al dente, reserving 1/4 cup pasta water.",
+        "Warm oil in a skillet, pour in canned tomatoes, and simmer for 5 minutes until thickened.",
+        "Flake drained canned tuna or meat into the simmering tomato sauce.",
+        "Toss drained pasta into the skillet with reserved water and serve hot."
+      ],
+      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce."
+    },
+    {
+      "id": "recipe_creamy_fridge_pasta",
+      "title": "Creamy Garlic Dairy & Vegetable Skillet Pasta",
+      "prep_time_mins": 18,
+      "difficulty": "Easy",
+      "estimated_calories": 310,
+      "ingredient_calories": {
+        "De Cecco": 310
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "De Cecco"
+      ],
+      "additional_staples": [
+        "Salt",
+        "Black Pepper",
+        "Cooking Oil"
+      ],
+      "steps": [
+        "Cook pasta in salted boiling water until tender, then drain.",
+        "Saute diced fresh produce (onions, tomatoes, or greens) in oil over medium heat for 4 minutes.",
+        "Lower heat and stir in milk, cheese, or butter until a smooth pan sauce forms.",
+        "Fold the cooked pasta into the creamy vegetable sauce and season to taste."
+      ],
+      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste."
+    },
+    {
+      "id": "recipe_shakshuka_eggs",
+      "title": "Rustic Skillet Tomato & Poached Eggs (Shakshuka)",
+      "prep_time_mins": 12,
+      "difficulty": "Easy",
+      "estimated_calories": 310,
+      "ingredient_calories": {
+        "De Cecco": 310
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "De Cecco"
+      ],
+      "additional_staples": [
+        "Cooking Oil",
+        "Salt",
+        "Black Pepper"
+      ],
+      "steps": [
+        "Saute chopped fresh produce in a skillet with oil until softened.",
+        "Pour in canned tomatoes, season with salt and pepper, and simmer for 5 minutes.",
+        "Make gentle wells in the tomato sauce and crack eggs directly into each well.",
+        "Cover skillet and cook on low for 4 to 5 minutes until egg whites set."
+      ],
+      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce."
+    }
+  ],
+  "canned_tomato:clara ole italian style pasta sauce:1|canned_tomato:sweet style spaghetti sauce:1|canned_tomato:tomato sauce pouch:1|canned_tuna_meat:555 tuna adobo:1|canned_tuna_meat:argentina meat loaf:1|canned_tuna_meat:saba mackerel:1|canned_tuna_meat:san marino corned tuna:4|canned_tuna_meat:tulip luncheon meat:1|canned_tuna_meat:uni pak squid:1|cereal_grains:ellie pure cornstarch:1|cereal_grains:packaged food pouch:1": [
+    {
+      "id": "recipe-1",
+      "title": "Crispy Tulip Luncheon Meat and Meat Loaf in Sweet Tomato Glaze",
+      "prep_time_mins": 20,
+      "difficulty": "Easy",
+      "estimated_calories": 465,
+      "ingredient_calories": {
+        "Tulip Luncheon Meat": 850,
+        "Argentina Meat Loaf": 280,
+        "Sweet Style Spaghetti Sauce": 400,
+        "Ellie Pure Cornstarch": 210,
+        "Cooking Oil": 120,
+        "Salt and Pepper": 0
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Tulip Luncheon Meat",
+        "Argentina Meat Loaf",
+        "Sweet Style Spaghetti Sauce",
+        "Ellie Pure Cornstarch"
+      ],
+      "additional_staples": [
+        "Cooking oil",
+        "Salt",
+        "Black pepper",
+        "Water"
+      ],
+      "steps": [
+        "Cut the Tulip Luncheon Meat and Argentina Meat Loaf into bite-sized cubes and season lightly with black pepper.",
+        "Toss the meat cubes in 4 tablespoons of Ellie Pure Cornstarch until evenly coated, then pan-fry in hot cooking oil until golden and crispy.",
+        "In the same pan after draining excess oil, heat the Sweet Style Spaghetti Sauce with a splash of water and a slurry made from 1 tablespoon of Ellie Pure Cornstarch until glossy and thickened.",
+        "Toss the crispy meat cubes into the thickened glaze until coated and serve warm."
+      ],
+      "zero_waste_tip": "Use the remaining seasoned cornstarch from the coating bowl to make the thickening slurry instead of discarding it."
+    },
+    {
+      "id": "recipe-2",
+      "title": "Thickened Italian-Style San Marino Corned Tuna and Squid Skillet",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 490,
+      "ingredient_calories": {
+        "San Marino Corned Tuna": 360,
+        "Uni Pak Squid": 150,
+        "Clara Ole Italian Style Pasta Sauce": 350,
+        "Ellie Pure Cornstarch": 60,
+        "Cooking Oil": 60,
+        "Salt and Pepper": 0
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "San Marino Corned Tuna",
+        "Uni Pak Squid",
+        "Clara Ole Italian Style Pasta Sauce",
+        "Ellie Pure Cornstarch"
+      ],
+      "additional_staples": [
+        "Cooking oil",
+        "Salt",
+        "Black pepper",
+        "Water"
+      ],
+      "steps": [
+        "Heat a little cooking oil in a skillet and briefly saute 2 cans of San Marino Corned Tuna along with the drained Uni Pak Squid.",
+        "Pour in the Clara Ole Italian Style Pasta Sauce and the reserved liquid from the Uni Pak Squid, then bring to a gentle simmer.",
+        "Mix 2 tablespoons of Ellie Pure Cornstarch with 2 tablespoons of water and stir it into the skillet until the sauce thickens into a rich stew.",
+        "Season with salt and black pepper to taste and serve immediately."
+      ],
+      "zero_waste_tip": "Rinse the Clara Ole Italian Style Pasta Sauce pouch with the water used for the cornstarch slurry so not a drop of sauce is wasted."
+    },
+    {
+      "id": "recipe-3",
+      "title": "Savory Saba Mackerel and Tuna Adobo Tomato Skillet with Packaged Food Pouch",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 615,
+      "ingredient_calories": {
+        "Saba Mackerel": 220,
+        "555 Tuna Adobo": 170,
+        "Tomato Sauce Pouch": 300,
+        "Packaged Food Pouch": 450,
+        "Ellie Pure Cornstarch": 30,
+        "Cooking Oil": 60,
+        "Salt and Pepper": 0
+      },
+      "storage_zones_used": [
+        "Pantry"
+      ],
+      "matched_ingredients": [
+        "Saba Mackerel",
+        "555 Tuna Adobo",
+        "Tomato Sauce Pouch",
+        "Packaged Food Pouch",
+        "Ellie Pure Cornstarch"
+      ],
+      "additional_staples": [
+        "Cooking oil",
+        "Salt",
+        "Black pepper",
+        "Water"
+      ],
+      "steps": [
+        "Flake the Saba Mackerel into large chunks and combine it in a oiled pan with the 555 Tuna Adobo over medium heat.",
+        "Pour in the Tomato Sauce Pouch along with the mackerel brine and simmer for 3 to 4 minutes.",
+        "Stir in 1 tablespoon of Ellie Pure Cornstarch dissolved in a splash of water to thicken the adobo-tomato sauce, then season with salt and pepper.",
+        "Warm the Packaged Food Pouch according to package directions and serve topped with the rich fish and tomato sauce."
+      ],
+      "zero_waste_tip": "Simmer the Saba Mackerel brine directly into the tomato sauce for extra umami instead of pouring it down the drain."
+    }
+  ],
+  "canned_tomato:clara ole italian style pasta sauce:1|canned_tomato:sweet style spaghetti sauce:1|canned_tomato:tomato sauce pouch:1|canned_tuna_meat:555 tuna adobo:1|canned_tuna_meat:argentina meat loaf:1|canned_tuna_meat:saba mackerel:1|canned_tuna_meat:san marino corned tuna:4|canned_tuna_meat:tulip luncheon meat:1|canned_tuna_meat:uni pak squid:1|cereal_grains:ellie pure cornstarch:1": [
+    {
+      "id": "recipe-1",
+      "title": "Crispy Cornstarch-Crusted Tulip Luncheon Meat with Sweet Tuna Tomato Sauce",
+      "prep_time_mins": 20,
+      "difficulty": "Easy",
+      "estimated_calories": 553,
+      "ingredient_calories": {
+        "Tulip Luncheon Meat": 850,
+        "Sweet Style Spaghetti Sauce": 400,
+        "San Marino Corned Tuna": 180,
+        "Ellie Pure Cornstarch": 110,
+        "Cooking oil": 120
+      },
+      "storage_zones_used": [
+        "pantry"
+      ],
+      "matched_ingredients": [
+        "Tulip Luncheon Meat",
+        "Sweet Style Spaghetti Sauce",
+        "San Marino Corned Tuna",
+        "Ellie Pure Cornstarch"
+      ],
+      "additional_staples": [
+        "cooking oil",
+        "salt",
+        "black pepper"
+      ],
+      "steps": [
+        "Slice the Tulip Luncheon Meat into even strips and toss them in 2 tablespoons of Ellie Pure Cornstarch until lightly coated on all sides.",
+        "Heat cooking oil in a skillet over medium heat and pan-fry the coated luncheon meat slices for 3 to 4 minutes per side until golden and crispy, then transfer to a plate.",
+        "In the same skillet, pour in the Sweet Style Spaghetti Sauce and 1 can of San Marino Corned Tuna, seasoning with salt and black pepper, and simmer for 5 minutes until heated through.",
+        "Serve the crispy luncheon meat topped with or alongside the warm sweet-style corned tuna tomato sauce."
+      ],
+      "zero_waste_tip": "Use the leftover seasoned cornstarch from the coating bowl mixed with a splash of water as a slurry if you want an extra-thick sauce, and rinse the sauce pouch with a tablespoon of water into the pan so none goes to waste."
+    },
+    {
+      "id": "recipe-2",
+      "title": "Italian-Style Saba Mackerel & Uni Pak Squid Thickened Ragout",
+      "prep_time_mins": 15,
+      "difficulty": "Easy",
+      "estimated_calories": 418,
+      "ingredient_calories": {
+        "Clara Ole Italian Style Pasta Sauce": 350,
+        "Saba Mackerel": 220,
+        "Uni Pak Squid": 150,
+        "Ellie Pure Cornstarch": 55,
+        "Cooking oil": 60
+      },
+      "storage_zones_used": [
+        "pantry"
+      ],
+      "matched_ingredients": [
+        "Clara Ole Italian Style Pasta Sauce",
+        "Saba Mackerel",
+        "Uni Pak Squid",
+        "Ellie Pure Cornstarch"
+      ],
+      "additional_staples": [
+        "cooking oil",
+        "salt",
+        "black pepper",
+        "water"
+      ],
+      "steps": [
+        "Warm a teaspoon of cooking oil in a pan over medium heat, then add the Clara Ole Italian Style Pasta Sauce and bring to a gentle simmer.",
+        "Gently fold in the Saba Mackerel (along with its flavorful broth) and Uni Pak Squid, breaking the mackerel into bite-sized chunks.",
+        "Mix 1 tablespoon of Ellie Pure Cornstarch with 2 tablespoons of water to make a smooth slurry, then stir it into the simmering seafood sauce.",
+        "Cook for 2 to 3 minutes until glossy and thickened, season with salt and black pepper to taste, and serve hot."
+      ],
+      "zero_waste_tip": "Include the liquid from both the Saba Mackerel and Uni Pak Squid cans directly in the sauce for free umami depth, using the Ellie Pure Cornstarch slurry to bind the extra broth into a rich glaze."
+    },
+    {
+      "id": "recipe-3",
+      "title": "Seared Argentina Meat Loaf & 555 Tuna Adobo in Savory Tomato Gravy",
+      "prep_time_mins": 20,
+      "difficulty": "Easy",
+      "estimated_calories": 355,
+      "ingredient_calories": {
+        "Argentina Meat Loaf": 280,
+        "555 Tuna Adobo": 170,
+        "Tomato Sauce Pouch": 300,
+        "San Marino Corned Tuna": 180,
+        "Ellie Pure Cornstarch": 75,
+        "Cooking oil": 60
+      },
+      "storage_zones_used": [
+        "pantry"
+      ],
+      "matched_ingredients": [
+        "Argentina Meat Loaf",
+        "555 Tuna Adobo",
+        "Tomato Sauce Pouch",
+        "San Marino Corned Tuna",
+        "Ellie Pure Cornstarch"
+      ],
+      "additional_staples": [
+        "cooking oil",
+        "salt",
+        "black pepper",
+        "water"
+      ],
+      "steps": [
+        "Cut the Argentina Meat Loaf into thick medallions, lightly dust with 1 tablespoon of Ellie Pure Cornstarch, and sear in a lightly oiled skillet for 2 minutes per side until browned.",
+        "Push the meat loaf to one side of the pan and add the 555 Tuna Adobo, 1 can of San Marino Corned Tuna, and the Tomato Sauce Pouch.",
+        "Dissolve 1 teaspoon of Ellie Pure Cornstarch in 2 tablespoons of water and stir into the tomato mixture, simmering for 4 to 5 minutes until the gravy coats the back of a spoon.",
+        "Season with salt and black pepper, spoon the savory tuna-tomato gravy over the seared meat loaf medallions, and serve."
+      ],
+      "zero_waste_tip": "Keep the remaining unopened cans of San Marino Corned Tuna and the rest of the Ellie Pure Cornstarch sealed in a cool, dry pantry shelf for quick future meals."
     }
   ]
 }

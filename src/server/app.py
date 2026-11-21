@@ -590,6 +590,7 @@ async def handle_recipes_generate(request: Request):
         req_data["items"],
         api_key=req_data["api_key"],
         timeout_sec=req_data["timeout_sec"],
+        force_refresh=req_data.get("force_refresh", False),
     )
     return JSONResponse(result)
 
@@ -862,29 +863,38 @@ async def handle_ui_detect(request: Request):
             det["crop_jpeg_b64"] = crop_b64
         unit_kcal = extract_positive_calories(det.get("estimated_calories")) or get_class_calories(cls_id, count=1)
         counts_by_class[cls_id] = counts_by_class.get(cls_id, 0) + 1
-        if cls_id not in grouped:
-            grouped[cls_id] = {
+        disp_val = det.get("display_name") or get_display_name(cls_id)
+        disp_norm = " ".join(str(disp_val).strip().lower().split())
+        if not disp_norm:
+            disp_val = get_display_name(cls_id)
+            disp_norm = " ".join(str(disp_val).strip().lower().split())
+        item_key = f"{cls_id}::{disp_norm}"
+        if item_key not in grouped:
+            grouped[item_key] = {
                 "class_id": cls_id,
-                "display_name": det.get("display_name") or get_display_name(cls_id),
+                "item_key": item_key,
+                "display_name": str(disp_val),
                 "count": 1,
                 "max_conf": conf_val,
                 "crop_jpeg_b64": crop_b64,
                 "unit_calories": [unit_kcal],
             }
         else:
-            grouped[cls_id]["count"] += 1
-            grouped[cls_id]["unit_calories"].append(unit_kcal)
-            if conf_val > grouped[cls_id]["max_conf"]:
-                grouped[cls_id]["max_conf"] = conf_val
+            grouped[item_key]["count"] += 1
+            grouped[item_key]["unit_calories"].append(unit_kcal)
+            if conf_val > grouped[item_key]["max_conf"]:
+                grouped[item_key]["max_conf"] = conf_val
+                grouped[item_key]["display_name"] = str(disp_val)
                 if crop_b64:
-                    grouped[cls_id]["crop_jpeg_b64"] = crop_b64
-            elif not grouped[cls_id].get("crop_jpeg_b64") and crop_b64:
-                grouped[cls_id]["crop_jpeg_b64"] = crop_b64
+                    grouped[item_key]["crop_jpeg_b64"] = crop_b64
+            elif not grouped[item_key].get("crop_jpeg_b64") and crop_b64:
+                grouped[item_key]["crop_jpeg_b64"] = crop_b64
 
     confirmed_inventory = []
     total_estimated_calories = 0
-    for cls_id in sorted(grouped.keys()):
-        group_entry = grouped[cls_id]
+    for item_key in sorted(grouped.keys()):
+        group_entry = grouped[item_key]
+        cls_id = group_entry["class_id"]
         unit_cals = group_entry.get("unit_calories") or []
         group_entry["calories_per_unit"] = compute_median_unit_calories(unit_cals, cls_id)
         formatted_item = format_confirmed_inventory_item(group_entry)
@@ -923,6 +933,8 @@ async def handle_ui_detect(request: Request):
     for inv_item in confirmed_inventory:
         items_for_recipes.append({
             "class_id": inv_item["class_id"],
+            "display_name": inv_item["display_name"],
+            "item_key": inv_item.get("item_key"),
             "count": int(inv_item["count"]),
             "calories_per_unit": int(inv_item["calories_per_unit"]),
             "estimated_calories": int(inv_item["estimated_calories"]),
@@ -933,9 +945,11 @@ async def handle_ui_detect(request: Request):
         "source": "none",
         "latency_ms": 0.0,
         "total_inventory_calories": 0,
+        "cached": False,
+        "items_used": [],
     }
     if items_for_recipes:
-        recipes_payload = generate_structured_recipes(items_for_recipes, timeout_sec=2.0)
+        recipes_payload = generate_structured_recipes(items_for_recipes)
 
     elapsed_ms = round(float(res["elapsed_ms"]), 2)
     fps = round(1000.0 / max(0.01, float(res["elapsed_ms"])), 2)
@@ -961,6 +975,8 @@ async def handle_ui_detect(request: Request):
         "annotated_jpeg_b64": annotated_b64,
         "recipes": recipes_payload.get("recipes", []),
         "recipe_source": recipes_payload.get("source", "offline"),
+        "recipe_cached": bool(recipes_payload.get("cached", False)),
+        "items_used": recipes_payload.get("items_used"),
         "total_inventory_calories": int(recipes_payload.get("total_inventory_calories", total_estimated_calories)),
     })
 

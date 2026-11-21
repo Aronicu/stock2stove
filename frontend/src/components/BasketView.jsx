@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  ArrowLeft,
   Flame,
   Minus,
   Package,
@@ -55,6 +56,16 @@ export default function BasketView({
 
   return (
     <div className="basket-layout">
+      <div className="nav-back-row">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={onGoToScanner}
+        >
+          <ArrowLeft size={15} />
+          <span>Back to Scanner</span>
+        </button>
+      </div>
       <div className="calorie-summary-banner card">
         <div className="summary-stat-group">
           <div className="summary-stat">
@@ -168,9 +179,10 @@ export default function BasketView({
             const perUnit = Number(item.calories_per_unit || getCaloriesPerUnit(item.class_id))
             const subtotal = item.estimated_calories != null ? Number(item.estimated_calories) : perUnit * qty
             const confPct = Math.round(Number(item.max_conf || 0) * 100)
+            const itemKey = item.item_key || item.class_id
 
             return (
-              <div key={item.class_id} className="card basket-item-card">
+              <div key={itemKey} className="card basket-item-card">
                 <div className="basket-item-top">
                   {cropSrc ? (
                     <img src={cropSrc} alt={displayName} className="basket-crop-img" />
@@ -196,7 +208,7 @@ export default function BasketView({
                   <button
                     type="button"
                     className="btn-icon-danger"
-                    onClick={function clickRemoveItem() { onDelete(item.class_id) }}
+                    onClick={function clickRemoveItem() { onDelete(itemKey, false) }}
                     title={`Delete ${displayName}`}
                     aria-label={`Delete ${displayName}`}
                   >
@@ -209,7 +221,7 @@ export default function BasketView({
                     <button
                       type="button"
                       className="stepper-btn"
-                      onClick={function clickDec() { onDecrement(item.class_id) }}
+                      onClick={function clickDec() { onDecrement(itemKey) }}
                       aria-label={`Decrease ${displayName}`}
                     >
                       <Minus size={15} />
@@ -218,7 +230,7 @@ export default function BasketView({
                     <button
                       type="button"
                       className="stepper-btn"
-                      onClick={function clickInc() { onIncrement(item.class_id) }}
+                      onClick={function clickInc() { onIncrement(itemKey) }}
                       aria-label={`Increase ${displayName}`}
                     >
                       <Plus size={15} />

@@ -405,7 +405,7 @@ def test_reeval_gemini_api_config_client_and_errors(monkeypatch):
 
     try:
         monkeypatch.delenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", raising=False)
-        assert get_gemini_thinking_level("gemini-4-hydrogen") == "low"
+        assert get_gemini_thinking_level("gemini-4-hydrogen") == "medium"
         assert get_gemini_thinking_level("gemini-3.5-flash-lite") == "minimal"
 
         monkeypatch.setenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", "high")
@@ -468,7 +468,7 @@ def test_reeval_gemini_api_config_client_and_errors(monkeypatch):
         res_ok_2 = gd_mod.query_gemini_vision_api(dummy_img, api_key="key-1", model_name="gemini-3.5-flash-lite")
         assert res_ok_2 == '{"boxes": []}'
 
-        monkeypatch.setenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", "medium")
+        monkeypatch.setenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", "high")
         res_ok_3 = gd_mod.query_gemini_vision_api(dummy_img, api_key="key-1", model_name="gemini-4-hydrogen")
         assert res_ok_3 == '{"boxes": []}'
 
@@ -484,9 +484,9 @@ def test_reeval_gemini_api_config_client_and_errors(monkeypatch):
             assert c["response_format"]["mime_type"] == "application/json"
             assert "schema" in c["response_format"]
             assert "temperature" not in c["generation_config"]
-        assert call_h["generation_config"]["thinking_level"] == "low"
+        assert call_h["generation_config"]["thinking_level"] == "medium"
         assert call_fl["generation_config"]["thinking_level"] == "minimal"
-        assert call_env["generation_config"]["thinking_level"] == "medium"
+        assert call_env["generation_config"]["thinking_level"] == "high"
     finally:
         gd_mod.GEMINI_CLIENT_CACHE["api_key"] = prev_cache_key
         gd_mod.GEMINI_CLIENT_CACHE["client"] = prev_cache_client

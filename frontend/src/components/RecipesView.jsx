@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   CheckSquare,
   ChefHat,
   Clock,
@@ -7,7 +8,9 @@ import {
   Lightbulb,
   RefreshCw,
   ScanLine,
+  ShoppingBasket,
   Square,
+  Trash2,
   Warehouse,
 } from 'lucide-react'
 
@@ -15,37 +18,50 @@ export default function RecipesView({
   recipeState,
   checkedSteps,
   onToggleStep,
+  onRemoveRecipe,
   onRetry,
+  onGoToBasket,
   onGoToScanner,
 }) {
+  const data = recipeState.data || {}
+  const recipes = Array.isArray(data.recipes) ? data.recipes : []
+  const itemsUsed = Array.isArray(data.items_used) && data.items_used.length > 0
+    ? data.items_used
+    : (Array.isArray(data.inventory_used) ? data.inventory_used : [])
+  const totalInvCals = Number(data.total_inventory_calories || 0)
+
+  let bodyContent = null
+
   if (recipeState.status === 'idle') {
-    return (
+    bodyContent = (
       <div className="card empty-state-card">
         <ChefHat size={48} className="empty-icon" />
         <h3>No Recipes Generated Yet</h3>
         <p>
           Scan ingredients or curate your basket, then click &ldquo;Generate Recipes&rdquo; for zero-waste meal plans and calorie breakdowns.
         </p>
-        <button type="button" className="btn btn-primary" onClick={onGoToScanner}>
-          <ScanLine size={16} />
-          <span>Go to Scanner</span>
-        </button>
+        <div className="action-row">
+          <button type="button" className="btn btn-secondary" onClick={onGoToBasket}>
+            <ShoppingBasket size={16} />
+            <span>Back to Basket</span>
+          </button>
+          <button type="button" className="btn btn-primary" onClick={onGoToScanner}>
+            <ScanLine size={16} />
+            <span>Go to Scanner</span>
+          </button>
+        </div>
       </div>
     )
-  }
-
-  if (recipeState.status === 'loading') {
-    return (
+  } else if (recipeState.status === 'loading') {
+    bodyContent = (
       <div className="card empty-state-card">
         <div className="spinner" aria-hidden="true" />
         <h3>Crafting Zero-Waste Recipes...</h3>
         <p>Sending your post-deletion ingredient basket and calorie budget to the chef engine.</p>
       </div>
     )
-  }
-
-  if (recipeState.status === 'error') {
-    return (
+  } else if (recipeState.status === 'error') {
+    bodyContent = (
       <div className="card error-state-card">
         <h3>Recipe Generation Failed</h3>
         <p>{recipeState.error || 'Could not reach the recipe generation endpoint.'}</p>
@@ -57,56 +73,50 @@ export default function RecipesView({
         </div>
       </div>
     )
-  }
+  } else {
+    bodyContent = (
+      <>
+        <div className="card telemetry-banner">
+          <div className="telemetry-left">
+            <span className="telemetry-pill telemetry-source">
+              LLM: {data.source || 'offline_cache'}
+            </span>
+            <span className={`telemetry-pill ${data.cached ? 'telemetry-cached' : 'telemetry-live'}`}>
+              {data.cached ? 'Cached' : 'Live'}
+            </span>
+            <span className="telemetry-pill telemetry-latency">
+              {Math.round(Number(data.latency_ms || 0))} ms
+            </span>
+            <span className="telemetry-pill telemetry-calories">
+              <Flame size={14} />
+              <span>Inventory: {totalInvCals} kcal</span>
+            </span>
+          </div>
 
-  const data = recipeState.data || {}
-  const recipes = Array.isArray(data.recipes) ? data.recipes : []
-  const inventoryUsed = Array.isArray(data.inventory_used) ? data.inventory_used : []
-  const totalInvCals = Number(data.total_inventory_calories || 0)
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onRetry}
+          >
+            <RefreshCw size={15} />
+            <span>Regenerate</span>
+          </button>
 
-  return (
-    <div className="recipes-layout">
-      <div className="card telemetry-banner">
-        <div className="telemetry-left">
-          <span className="telemetry-pill telemetry-source">
-            LLM: {data.source || 'offline_cache'}
-          </span>
-          <span className={`telemetry-pill ${data.cached ? 'telemetry-cached' : 'telemetry-live'}`}>
-            {data.cached ? 'Cached' : 'Live'}
-          </span>
-          <span className="telemetry-pill telemetry-latency">
-            {Math.round(Number(data.latency_ms || 0))} ms
-          </span>
-          <span className="telemetry-pill telemetry-calories">
-            <Flame size={14} />
-            <span>Inventory: {totalInvCals} kcal</span>
-          </span>
+          {itemsUsed.length > 0 && (
+            <div className="inventory-used-row">
+              <span className="used-label">Ingredients sent:</span>
+              {itemsUsed.map(function renderUsedChip(itemLabel, idx) {
+                return (
+                  <span key={`${itemLabel}-${idx}`} className="used-chip">
+                    {itemLabel}
+                  </span>
+                )
+              })}
+            </div>
+          )}
         </div>
 
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={onRetry}
-        >
-          <RefreshCw size={15} />
-          <span>Regenerate</span>
-        </button>
-
-        {inventoryUsed.length > 0 && (
-          <div className="inventory-used-row">
-            <span className="used-label">Ingredients sent:</span>
-            {inventoryUsed.map(function renderUsedChip(clsId) {
-              return (
-                <span key={clsId} className="used-chip">
-                  {clsId}
-                </span>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="recipes-grid">
+        <div className="recipes-grid">
         {recipes.map(function renderRecipeCard(recipe, cardIdx) {
           const recipeId = recipe.id || `recipe-${cardIdx}`
           const steps = Array.isArray(recipe.steps) ? recipe.steps : []
@@ -121,12 +131,23 @@ export default function RecipesView({
             <article key={recipeId} className="card recipe-card">
               <div className="recipe-header">
                 <h3>{recipe.title}</h3>
-                {recipe.estimated_calories != null && (
-                  <span className="recipe-kcal-badge">
-                    <Flame size={15} />
-                    <span>{recipe.estimated_calories} kcal</span>
-                  </span>
-                )}
+                <div className="recipe-header-actions">
+                  {recipe.estimated_calories != null && (
+                    <span className="recipe-kcal-badge">
+                      <Flame size={15} />
+                      <span>{recipe.estimated_calories} kcal</span>
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-icon-danger btn-remove-recipe"
+                    onClick={function clickRemoveRecipe() { onRemoveRecipe(recipeId) }}
+                    aria-label={`Remove ${recipe.title || 'recipe'}`}
+                    title="Remove Recipe"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
 
               <div className="recipe-meta-chips">
@@ -238,10 +259,35 @@ export default function RecipesView({
                   </div>
                 </div>
               )}
-            </article>
-          )
-        })}
+              </article>
+            )
+          })}
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div className="recipes-layout">
+      <div className="nav-back-row">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={onGoToBasket}
+        >
+          <ArrowLeft size={15} />
+          <span>Back to Basket</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={onGoToScanner}
+        >
+          <ScanLine size={15} />
+          <span>Back to Scanner</span>
+        </button>
       </div>
+      {bodyContent}
     </div>
   )
 }

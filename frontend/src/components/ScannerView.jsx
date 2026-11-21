@@ -362,7 +362,8 @@ export default function ScannerView({
         onScanUpdate({
           confirmed_inventory: payload.confirmed_inventory || [],
           excluded_classes: payload.excluded_classes || [],
-          replaceInventory: true,
+          clearOnly: true,
+          replaceInventory: false,
         })
         return
       }
@@ -487,7 +488,7 @@ export default function ScannerView({
         }
         const now = performance.now()
         const isGemini = cfg.detectorMode === 'gemini_vision' || cfg.detectorMode === 'hybrid_gemini'
-        const maxWaitMs = isGemini ? 12000 : 1200
+        const maxWaitMs = isGemini ? 22000 : 1200
         const minIntervalMs = isGemini ? 1500 : 180
         if (inFlightRef.current && now - lastSentAtRef.current < maxWaitMs) {
           return
@@ -610,7 +611,7 @@ export default function ScannerView({
       confirmed_inventory: result.confirmed_inventory || [],
       excluded_classes: result.excluded_classes || [],
       recipes: result.recipes && result.recipes.length > 0 ? result : null,
-      replaceInventory: false,
+      replaceInventory: true,
     })
     if (onLogEvent) {
       onLogEvent(
@@ -754,8 +755,14 @@ export default function ScannerView({
     await onResetSession()
   }
 
-  function handleDeleteDetection(classId) {
-    const norm = normalizeClassId(classId)
+  function handleDeleteDetection(detOrClassId) {
+    const rawClassId = typeof detOrClassId === 'object' && detOrClassId !== null
+      ? detOrClassId.class_id
+      : detOrClassId
+    const norm = normalizeClassId(rawClassId)
+    if (!norm) {
+      return
+    }
     setLiveDetections(function removeFromLive(prev) {
       return prev.filter(function keepItem(d) {
         return normalizeClassId(d.class_id) !== norm
@@ -772,7 +779,7 @@ export default function ScannerView({
         }),
       }
     })
-    onDeleteItem(norm)
+    onDeleteItem(norm, true)
   }
 
   const rawDisplayedDetections = inputMode === 'camera'
@@ -1097,8 +1104,9 @@ export default function ScannerView({
             <div className="mini-chips-wrap">
               {basketItems.map(function renderMiniChip(item) {
                 const cropSrc = formatCropDataUrl(item.crop_jpeg_b64)
+                const chipKey = item.item_key || item.class_id
                 return (
-                  <span key={item.class_id} className="mini-chip">
+                  <span key={chipKey} className="mini-chip">
                     {cropSrc && <img src={cropSrc} alt={item.display_name} className="mini-chip-img" />}
                     <span>{item.display_name} x{item.count}</span>
                   </span>
@@ -1313,7 +1321,7 @@ export default function ScannerView({
                           <button
                             type="button"
                             className="btn-icon-danger"
-                            onClick={function clickDeleteDet() { handleDeleteDetection(det.class_id) }}
+                            onClick={function clickDeleteDet() { handleDeleteDetection(det) }}
                             title={`Remove ${disp}`}
                           >
                             <Trash2 size={15} />

@@ -95,8 +95,17 @@ def delete_session_item(session_id="default", class_id=""):
             if not isinstance(frame_entry, dict):
                 continue
             keys_to_remove = []
-            for key in frame_entry.keys():
-                if key == cls_id or normalize_class_id(key) == cls_id:
+            for key, info in frame_entry.items():
+                key_prefix = str(key).split("::")[0]
+                info_cls = info.get("class_id") if isinstance(info, dict) else None
+                if (
+                    key == cls_id
+                    or key_prefix == cls_id
+                    or normalize_class_id(key_prefix) == cls_id
+                    or normalize_class_id(key) == cls_id
+                    or info_cls == cls_id
+                    or (info_cls and normalize_class_id(info_cls) == cls_id)
+                ):
                     keys_to_remove.append(key)
             for key in keys_to_remove:
                 del frame_entry[key]

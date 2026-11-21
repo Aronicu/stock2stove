@@ -25,7 +25,10 @@ export default function HeaderBar({
     statusText = 'Server Unreachable'
   }
 
-  const activeWeights = healthState.data?.model_status?.active_weights || 'YOLOv8n / Gemini'
+  const rawWeights = healthState.data?.model_status?.active_weights
+  const activeWeights = rawWeights
+    ? String(rawWeights).split(/[\\/]/).pop() || String(rawWeights)
+    : 'YOLOv8n / Gemini'
 
   return (
     <header className="app-header">

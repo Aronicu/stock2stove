@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  ChefHat,
+  ScanLine,
+  ShoppingBasket,
+} from 'lucide-react'
+import {
   deleteSessionItemRest,
   fetchHealthStatus,
   generateRecipesFromBasket,
@@ -13,6 +18,7 @@ import RecipesView from './components/RecipesView.jsx'
 import ScannerView from './components/ScannerView.jsx'
 import {
   DETECTOR_MODES,
+  buildBasketItemKey,
   computeTotalBasketCalories,
   createClientSessionId,
   getCaloriesPerUnit,
@@ -23,6 +29,30 @@ import {
 const STORAGE_KEY_BASKET = 'stock2stove.basket_items'
 const STORAGE_KEY_EXCLUDED = 'stock2stove.excluded_classes'
 const STORAGE_KEY_PREFS = 'stock2stove.preferences'
+const VALID_TABS = new Set(['scanner', 'basket', 'recipes'])
+
+function readTabFromHash() {
+  try {
+    const raw = String(window.location.hash || '').replace(/^#/, '').trim().toLowerCase()
+    if (VALID_TABS.has(raw)) {
+      return raw
+    }
+  } catch {
+  }
+  return 'scanner'
+}
+
+function doesBasketItemMatchTarget(item, targetKey) {
+  const rowKey = item.item_key || buildBasketItemKey(item.class_id, item.display_name)
+  if (rowKey === targetKey) {
+    return true
+  }
+  const normTarget = normalizeClassId(targetKey)
+  if (normTarget && normalizeClassId(item.class_id) === normTarget) {
+    return true
+  }
+  return false
+}
 
 function readStoredJson(key, fallbackValue) {
   try {
@@ -141,12 +171,15 @@ function loadInitialBasketItems(excludedList) {
       continue
     }
     const meta = getClassMeta(normId)
+    const displayName = row.display_name || meta.display_name
+    const itemKey = row.item_key || buildBasketItemKey(normId, displayName)
     const count = Math.max(1, Number(row.count || 1))
     const fallbackPerUnit = Number(meta.calories_per_unit || getCaloriesPerUnit(normId))
     const resolved = resolveItemCalories(row, count, fallbackPerUnit)
     out.push({
+      item_key: itemKey,
       class_id: normId,
-      display_name: row.display_name || meta.display_name,
+      display_name: displayName,
       storage_zone: row.storage_zone || meta.storage_zone,
       count,
       max_conf: Number(row.max_conf || 0),
@@ -160,7 +193,7 @@ function loadInitialBasketItems(excludedList) {
 
 function mergeBasketInventory(prevItems, incomingItems, excludedList) {
   const excludedSet = new Set(excludedList.map(normalizeClassId))
-  const byClass = new Map()
+  const byKey = new Map()
 
   for (let i = 0; i < prevItems.length; i += 1) {
     const prev = prevItems[i]
@@ -168,7 +201,15 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
     if (!normId || excludedSet.has(normId)) {
       continue
     }
-    byClass.set(normId, prev)
+    const meta = getClassMeta(normId)
+    const prevDisp = prev.display_name || meta.display_name
+    const prevKey = prev.item_key || buildBasketItemKey(normId, prevDisp)
+    byKey.set(prevKey, {
+      ...prev,
+      item_key: prevKey,
+      class_id: normId,
+      display_name: prevDisp,
+    })
   }
 
   for (let i = 0; i < incomingItems.length; i += 1) {
@@ -178,9 +219,11 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
       continue
     }
     const meta = getClassMeta(normId)
+    const incDisp = inc.display_name || meta.display_name
+    const itemKey = inc.item_key || buildBasketItemKey(normId, incDisp)
     const incCount = Math.max(1, Number(inc.count || 1))
     const incConf = Number(inc.max_conf || 0)
-    const existing = byClass.get(normId)
+    const existing = byKey.get(itemKey)
     const defaultPerUnit = Number(meta.calories_per_unit || getCaloriesPerUnit(normId))
     const existingPerUnit = existing && Number(existing.calories_per_unit) > 0
       ? Number(existing.calories_per_unit)
@@ -199,7 +242,8 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
       } else if (!resolved.hasExplicit && nextCount === Number(existing.count || 1) && Number(existing.estimated_calories) > 0) {
         nextEst = Math.round(Number(existing.estimated_calories))
       }
-      byClass.set(normId, {
+      byKey.set(itemKey, {
+        item_key: itemKey,
         class_id: normId,
         display_name: inc.display_name || existing.display_name || meta.display_name,
         storage_zone: existing.storage_zone || meta.storage_zone,
@@ -210,9 +254,10 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
         estimated_calories: nextEst,
       })
     } else {
-      byClass.set(normId, {
+      byKey.set(itemKey, {
+        item_key: itemKey,
         class_id: normId,
-        display_name: inc.display_name || meta.display_name,
+        display_name: incDisp,
         storage_zone: meta.storage_zone,
         count: incCount,
         max_conf: incConf,
@@ -223,7 +268,7 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
     }
   }
 
-  return Array.from(byClass.values())
+  return Array.from(byKey.values())
 }
 
 export default function App() {
@@ -234,7 +279,7 @@ export default function App() {
     return { prefs, excluded, basket }
   })
 
-  const [activeTab, setActiveTab] = useState('scanner')
+  const [activeTab, setActiveTab] = useState(readTabFromHash)
   const [sessionId] = useState(createClientSessionId)
   const [detectorMode, setDetectorMode] = useState(initialState.prefs.detectorMode)
   const [enableClahe, setEnableClahe] = useState(initialState.prefs.enableClahe)
@@ -307,6 +352,25 @@ export default function App() {
     refreshHealth()
   }, [refreshHealth])
 
+  useEffect(function initHistoryEffect() {
+    const initialTab = readTabFromHash()
+    try {
+      window.history.replaceState({ tab: initialTab, diagnosticsOpen: false }, '', `#${initialTab}`)
+    } catch {
+    }
+    function handlePopState(event) {
+      const state = event && event.state ? event.state : null
+      const nextTab = state && VALID_TABS.has(state.tab) ? state.tab : readTabFromHash()
+      const nextDiag = Boolean(state && state.diagnosticsOpen)
+      setActiveTab(nextTab)
+      setDiagnosticsOpen(nextDiag)
+    }
+    window.addEventListener('popstate', handlePopState)
+    return function cleanupPopState() {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [])
+
   useEffect(function persistBasketEffect() {
     writeStoredBasket(basketItems)
   }, [basketItems])
@@ -328,7 +392,23 @@ export default function App() {
     wsSendRef.current = fn
   }
 
-  function handleScanUpdate({ confirmed_inventory, excluded_classes, recipes, replaceInventory }) {
+  function navigateToTab(nextTab) {
+    const targetTab = VALID_TABS.has(nextTab) ? nextTab : 'scanner'
+    if (targetTab === activeTab) {
+      if (diagnosticsOpen) {
+        handleCloseDiagnostics()
+      }
+      return
+    }
+    setDiagnosticsOpen(false)
+    setActiveTab(targetTab)
+    try {
+      window.history.pushState({ tab: targetTab, diagnosticsOpen: false }, '', `#${targetTab}`)
+    } catch {
+    }
+  }
+
+  function handleScanUpdate({ confirmed_inventory, excluded_classes, recipes, replaceInventory, clearOnly }) {
     const serverExcluded = Array.isArray(excluded_classes)
       ? excluded_classes.map(normalizeClassId).filter(Boolean)
       : []
@@ -341,7 +421,7 @@ export default function App() {
       setExcludedClasses(combinedExcluded)
     }
 
-    if (replaceInventory) {
+    if (clearOnly) {
       const excSet = new Set(combinedExcluded)
       setBasketItems(function filterOnly(prev) {
         return prev.filter(function keepRow(row) {
@@ -351,25 +431,37 @@ export default function App() {
       return
     }
 
-    if (Array.isArray(confirmed_inventory) && confirmed_inventory.length > 0) {
+    const hasRecipes = Boolean(recipes && Array.isArray(recipes.recipes) && recipes.recipes.length > 0)
+
+    if (replaceInventory && Array.isArray(confirmed_inventory)) {
+      setBasketItems(mergeBasketInventory([], confirmed_inventory, combinedExcluded))
+      if (!hasRecipes) {
+        setRecipeState({ status: 'idle', data: null, error: '' })
+      }
+    } else if (Array.isArray(confirmed_inventory) && confirmed_inventory.length > 0) {
       setBasketItems(function mergeNext(prev) {
         return mergeBasketInventory(prev, confirmed_inventory, combinedExcluded)
       })
     }
 
-    if (recipes && Array.isArray(recipes.recipes) && recipes.recipes.length > 0) {
-      const usedFromConfirm = Array.isArray(confirmed_inventory)
-        ? confirmed_inventory
-            .map(function mapInvId(it) { return normalizeClassId(it.class_id) })
-            .filter(Boolean)
-        : []
+    if (hasRecipes) {
+      const usedFromConfirm = []
+      if (Array.isArray(confirmed_inventory)) {
+        for (let i = 0; i < confirmed_inventory.length; i += 1) {
+          const cid = normalizeClassId(confirmed_inventory[i].class_id)
+          if (cid) {
+            usedFromConfirm.push(cid)
+          }
+        }
+      }
       setRecipeState({
         status: 'success',
         data: {
           source: recipes.recipe_source || recipes.source || 'offline_cache',
-          cached: true,
+          cached: Boolean(recipes.recipe_cached !== undefined ? recipes.recipe_cached : recipes.cached),
           latency_ms: recipes.inference_ms || 0,
           inventory_used: usedFromConfirm,
+          items_used: recipes.items_used || null,
           total_inventory_calories: recipes.total_inventory_calories || recipes.total_estimated_calories || 0,
           recipes: recipes.recipes,
         },
@@ -378,31 +470,59 @@ export default function App() {
     }
   }
 
-  async function handleDeleteItem(rawClassId) {
-    const normId = normalizeClassId(rawClassId)
-    if (!normId) {
+  async function handleDeleteItem(targetKey, excludeClass = false) {
+    const rawPrefix = String(targetKey || '').split('::')[0]
+    let normClassId = normalizeClassId(rawPrefix)
+    const remainingItems = []
+    for (let i = 0; i < basketItems.length; i += 1) {
+      const row = basketItems[i]
+      if (doesBasketItemMatchTarget(row, targetKey)) {
+        if (!normClassId) {
+          normClassId = normalizeClassId(row.class_id)
+        }
+      } else {
+        remainingItems.push(row)
+      }
+    }
+    if (!normClassId) {
       return
     }
-    const nextExcluded = Array.from(new Set(excludedRef.current.concat([normId])))
-    excludedRef.current = nextExcluded
-    setExcludedClasses(nextExcluded)
+
+    let hasRemainingInClass = false
+    for (let i = 0; i < remainingItems.length; i += 1) {
+      if (normalizeClassId(remainingItems[i].class_id) === normClassId) {
+        hasRemainingInClass = true
+        break
+      }
+    }
+    const shouldExcludeClass = Boolean(excludeClass) || !hasRemainingInClass
 
     setBasketItems(function removeBasketRow(prev) {
       return prev.filter(function keepOther(item) {
-        return normalizeClassId(item.class_id) !== normId
+        return !doesBasketItemMatchTarget(item, targetKey)
       })
     })
-    appendLog('INFO', 'BASKET', `Removed ${normId} from basket and excluded from session`)
+    setRecipeState({ status: 'idle', data: null, error: '' })
+
+    if (!shouldExcludeClass) {
+      appendLog('INFO', 'BASKET', `Removed ${targetKey} from basket`)
+      return
+    }
+
+    const nextExcluded = Array.from(new Set(excludedRef.current.concat([normClassId])))
+    excludedRef.current = nextExcluded
+    setExcludedClasses(nextExcluded)
+    appendLog('INFO', 'BASKET', `Removed ${normClassId} from basket and excluded from session`)
 
     if (wsSendRef.current) {
       wsSendRef.current({
         action: 'delete_item',
-        class_id: normId,
+        class_id: normClassId,
       })
     }
 
     try {
-      await deleteSessionItemRest(sessionId, normId)
+      await deleteSessionItemRest(sessionId, normClassId)
     } catch (err) {
       appendLog('WARN', 'SESSION', `REST delete sync skipped: ${err.message}`)
     }
@@ -432,13 +552,13 @@ export default function App() {
     }
   }
 
-  function handleIncrementItem(classId) {
-    const normId = normalizeClassId(classId)
+  function handleIncrementItem(targetKey) {
     setBasketItems(function incRow(prev) {
       return prev.map(function updateRow(item) {
-        if (normalizeClassId(item.class_id) !== normId) {
+        if (!doesBasketItemMatchTarget(item, targetKey)) {
           return item
         }
+        const normId = normalizeClassId(item.class_id)
         const nextCount = Number(item.count || 1) + 1
         const perUnit = Number(item.calories_per_unit || getCaloriesPerUnit(normId))
         return {
@@ -449,22 +569,23 @@ export default function App() {
         }
       })
     })
+    setRecipeState({ status: 'idle', data: null, error: '' })
   }
 
-  function handleDecrementItem(classId) {
-    const normId = normalizeClassId(classId)
+  function handleDecrementItem(targetKey) {
     const target = basketItems.find(function findRow(item) {
-      return normalizeClassId(item.class_id) === normId
+      return doesBasketItemMatchTarget(item, targetKey)
     })
     if (target && Number(target.count || 1) <= 1) {
-      handleDeleteItem(normId)
+      handleDeleteItem(targetKey, false)
       return
     }
     setBasketItems(function decRow(prev) {
       return prev.map(function updateRow(item) {
-        if (normalizeClassId(item.class_id) !== normId) {
+        if (!doesBasketItemMatchTarget(item, targetKey)) {
           return item
         }
+        const normId = normalizeClassId(item.class_id)
         const nextCount = Math.max(1, Number(item.count || 1) - 1)
         const perUnit = Number(item.calories_per_unit || getCaloriesPerUnit(normId))
         return {
@@ -475,12 +596,14 @@ export default function App() {
         }
       })
     })
+    setRecipeState({ status: 'idle', data: null, error: '' })
   }
 
   function handleAddManualItem(classId, count) {
     const normId = normalizeClassId(classId)
     const qty = Math.max(1, Number(count || 1))
     const meta = getClassMeta(normId)
+    const manualKey = buildBasketItemKey(normId, meta.display_name)
     const perUnit = meta.calories_per_unit || getCaloriesPerUnit(normId)
 
     if (excludedRef.current.includes(normId)) {
@@ -488,23 +611,38 @@ export default function App() {
     }
 
     setBasketItems(function upsertManual(prev) {
-      let found = false
-      const updated = prev.map(function mapRow(item) {
-        if (normalizeClassId(item.class_id) !== normId) {
-          return item
+      let matchIdx = -1
+      for (let i = 0; i < prev.length; i += 1) {
+        const rowKey = prev[i].item_key || buildBasketItemKey(prev[i].class_id, prev[i].display_name)
+        if (rowKey === manualKey) {
+          matchIdx = i
+          break
         }
-        found = true
+      }
+      if (matchIdx === -1) {
+        for (let i = 0; i < prev.length; i += 1) {
+          if (normalizeClassId(prev[i].class_id) === normId) {
+            matchIdx = i
+            break
+          }
+        }
+      }
+      const updated = prev.slice()
+      if (matchIdx >= 0) {
+        const item = updated[matchIdx]
+        const itemKey = item.item_key || buildBasketItemKey(item.class_id, item.display_name)
         const nextCount = Number(item.count || 1) + qty
         const rowPerUnit = Number(item.calories_per_unit) > 0 ? Number(item.calories_per_unit) : perUnit
-        return {
+        updated[matchIdx] = {
           ...item,
+          item_key: itemKey,
           count: nextCount,
           calories_per_unit: rowPerUnit,
           estimated_calories: Math.round(rowPerUnit * nextCount),
         }
-      })
-      if (!found) {
+      } else {
         updated.push({
+          item_key: manualKey,
           class_id: normId,
           display_name: meta.display_name,
           storage_zone: meta.storage_zone,
@@ -517,6 +655,7 @@ export default function App() {
       }
       return updated
     })
+    setRecipeState({ status: 'idle', data: null, error: '' })
     appendLog('INFO', 'BASKET', `Manually added ${meta.display_name} x${qty}`)
   }
 
@@ -524,6 +663,7 @@ export default function App() {
     excludedRef.current = []
     setExcludedClasses([])
     setBasketItems([])
+    setRecipeState({ status: 'idle', data: null, error: '' })
     removeStoredKey(STORAGE_KEY_BASKET)
     removeStoredKey(STORAGE_KEY_EXCLUDED)
     appendLog('INFO', 'SESSION', `Reset session ${sessionId}`)
@@ -535,6 +675,7 @@ export default function App() {
   }
 
   async function handleClearBasket() {
+    setRecipeState({ status: 'idle', data: null, error: '' })
     if (wsSendRef.current) {
       wsSendRef.current({
         frame_id: 0,
@@ -553,10 +694,10 @@ export default function App() {
     if (basketItems.length === 0) {
       return
     }
-    setActiveTab('recipes')
+    navigateToTab('recipes')
     setRecipeState({ status: 'loading', data: null, error: '' })
     try {
-      const response = await generateRecipesFromBasket(basketItems, 8.0)
+      const response = await generateRecipesFromBasket(basketItems, 30.0, true)
       setRecipeState({
         status: 'success',
         data: response,
@@ -592,9 +733,60 @@ export default function App() {
     })
   }
 
+  function handleRemoveRecipe(recipeId) {
+    setRecipeState(function removeRecipe(prev) {
+      if (!prev.data || !Array.isArray(prev.data.recipes)) {
+        return prev
+      }
+      const nextRecipes = prev.data.recipes.filter(function keepRecipe(recipe, idx) {
+        const id = recipe.id || `recipe-${idx}`
+        return id !== recipeId
+      })
+      if (nextRecipes.length === 0) {
+        return {
+          status: 'idle',
+          data: null,
+          error: '',
+        }
+      }
+      return {
+        ...prev,
+        data: {
+          ...prev.data,
+          recipes: nextRecipes,
+        },
+      }
+    })
+    setCheckedSteps(function dropRecipeSteps(prev) {
+      if (!Object.prototype.hasOwnProperty.call(prev, recipeId)) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next[recipeId]
+      return next
+    })
+    appendLog('INFO', 'RECIPE', `Removed recipe ${recipeId}`)
+  }
+
   function handleOpenDiagnostics() {
+    if (!diagnosticsOpen) {
+      try {
+        window.history.pushState({ tab: activeTab, diagnosticsOpen: true }, '', `#${activeTab}`)
+      } catch {
+      }
+    }
     setDiagnosticsOpen(true)
     refreshHealth()
+  }
+
+  function handleCloseDiagnostics() {
+    setDiagnosticsOpen(false)
+    try {
+      if (window.history.state && window.history.state.diagnosticsOpen) {
+        window.history.back()
+      }
+    } catch {
+    }
   }
 
   const basketTotalCalories = computeTotalBasketCalories(basketItems)
@@ -606,7 +798,7 @@ export default function App() {
     <div className="app-shell">
       <HeaderBar
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={navigateToTab}
         basketCount={basketItems.length}
         basketTotalCalories={basketTotalCalories}
         recipeCount={recipeCount}
@@ -631,7 +823,7 @@ export default function App() {
             onScanUpdate={handleScanUpdate}
             onDeleteItem={handleDeleteItem}
             onResetSession={handleResetSession}
-            onGoToBasket={function openBasketTab() { setActiveTab('basket') }}
+            onGoToBasket={function openBasketTab() { navigateToTab('basket') }}
             onGenerateRecipes={handleGenerateRecipes}
             onRegisterWsSend={registerWsSend}
             onLogEvent={appendLog}
@@ -651,7 +843,7 @@ export default function App() {
             onAddManual={handleAddManualItem}
             onClearAll={handleClearBasket}
             onGenerateRecipes={handleGenerateRecipes}
-            onGoToScanner={function openScannerTab() { setActiveTab('scanner') }}
+            onGoToScanner={function openScannerTab() { navigateToTab('scanner') }}
           />
         )}
 
@@ -660,17 +852,50 @@ export default function App() {
             recipeState={recipeState}
             checkedSteps={checkedSteps}
             onToggleStep={handleToggleRecipeStep}
+            onRemoveRecipe={handleRemoveRecipe}
             onRetry={handleGenerateRecipes}
-            onGoToScanner={function openScannerFromRecipes() { setActiveTab('scanner') }}
+            onGoToBasket={function openBasketFromRecipes() { navigateToTab('basket') }}
+            onGoToScanner={function openScannerFromRecipes() { navigateToTab('scanner') }}
           />
         )}
       </main>
+
+      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'scanner' ? 'mobile-nav-btn-active' : ''}`}
+          onClick={function clickMobileScanner() { navigateToTab('scanner') }}
+        >
+          <ScanLine size={18} />
+          <span>Scanner</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'basket' ? 'mobile-nav-btn-active' : ''}`}
+          onClick={function clickMobileBasket() { navigateToTab('basket') }}
+        >
+          <ShoppingBasket size={18} />
+          <span>Basket</span>
+          <span className="mobile-nav-badge">{basketItems.length}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'recipes' ? 'mobile-nav-btn-active' : ''}`}
+          onClick={function clickMobileRecipes() { navigateToTab('recipes') }}
+        >
+          <ChefHat size={18} />
+          <span>Recipes</span>
+          {recipeCount > 0 && <span className="mobile-nav-badge">{recipeCount}</span>}
+        </button>
+      </nav>
 
       <DiagnosticsModal
         isOpen={diagnosticsOpen}
         healthState={healthState}
         logs={logs}
-        onClose={function closeDiag() { setDiagnosticsOpen(false) }}
+        onClose={handleCloseDiagnostics}
         onRefreshHealth={refreshHealth}
         onClearLogs={function clearAllLogs() { setLogs([]) }}
       />

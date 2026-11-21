@@ -113,8 +113,10 @@ def format_confirmed_inventory_item(item):
         calories_per_unit = get_class_calories(cls_id, count=1)
 
     estimated_calories = int(calories_per_unit * count)
+    item_key = str(item.get("item_key") or f"{cls_id}::{' '.join(str(disp).strip().lower().split())}")
     return {
         "class_id": cls_id,
+        "item_key": item_key,
         "display_name": str(disp),
         "count": count,
         "max_conf": max_conf,
@@ -199,11 +201,13 @@ def parse_recipe_request(payload):
     )
 
     timeout_sec = float(payload.get("timeout_sec", LLM_TIMEOUT_SECONDS))
-    timeout_sec = max(0.2, min(10.0, timeout_sec))
+    timeout_sec = max(0.2, min(60.0, timeout_sec))
     api_key = payload.get("api_key") or None
+    force_refresh = bool(payload.get("force_refresh", False))
 
     return {
         "items": raw_items,
         "timeout_sec": timeout_sec,
         "api_key": api_key,
+        "force_refresh": force_refresh,
     }

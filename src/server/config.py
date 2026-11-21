@@ -62,13 +62,13 @@ LOWE_RATIO_THRESHOLD = 0.75
 RANSAC_REPROJ_THRESHOLD = 5.0
 MIN_HOMOGRAPHY_INLIERS = 6
 
-LLM_TIMEOUT_SECONDS = 2.5
+LLM_TIMEOUT_SECONDS = float(os.getenv("STOCK2STOVE_LLM_TIMEOUT", "30.0"))
 
 GEMINI_VISION_MODEL = os.getenv("STOCK2STOVE_GEMINI_VISION_MODEL", "gemini-4-hydrogen")
 GEMINI_RECIPE_MODEL = os.getenv("STOCK2STOVE_GEMINI_RECIPE_MODEL", "gemini-4-hydrogen")
 GEMINI_AUTOLABEL_MODEL = os.getenv("STOCK2STOVE_GEMINI_AUTOLABEL_MODEL", "gemini-4-hydrogen")
 GEMINI_THINKING_LEVEL = os.getenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", "").strip().lower()
-GEMINI_VISION_TIMEOUT_SECONDS = float(os.getenv("STOCK2STOVE_GEMINI_VISION_TIMEOUT", "10.0"))
+GEMINI_VISION_TIMEOUT_SECONDS = float(os.getenv("STOCK2STOVE_GEMINI_VISION_TIMEOUT", "20.0"))
 
 
 def get_gemini_thinking_level(model_name=None):
@@ -78,7 +78,7 @@ def get_gemini_thinking_level(model_name=None):
     resolved_model = str(model_name or GEMINI_VISION_MODEL).strip().lower()
     if "flash-lite" in resolved_model:
         return "minimal"
-    return "low"
+    return "medium"
 
 SUPPORTED_DETECTOR_MODES = [
     "yolov8",

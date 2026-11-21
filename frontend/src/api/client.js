@@ -124,12 +124,15 @@ export async function scanVideoClip({
   return parseJsonResponse(res)
 }
 
-export async function generateRecipesFromBasket(items, timeoutSec = 8.0) {
-  const payloadItems = items.map(function mapBasketItem(item) {
+export async function generateRecipesFromBasket(items, timeoutSec = 30.0, forceRefresh = true) {
+  const payloadItems = []
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
     const count = Math.max(1, Number(item.count || 1))
     const mapped = {
       class_id: item.class_id,
       display_name: item.display_name,
+      item_key: item.item_key || null,
       count,
       storage_zone: String(item.storage_zone || 'pantry').toLowerCase(),
       crop_jpeg_b64: item.crop_jpeg_b64 || null,
@@ -140,14 +143,15 @@ export async function generateRecipesFromBasket(items, timeoutSec = 8.0) {
     if (Number(item.estimated_calories) > 0) {
       mapped.estimated_calories = Math.round(Number(item.estimated_calories))
     }
-    return mapped
-  })
+    payloadItems.push(mapped)
+  }
   const res = await fetch('/api/v1/recipes/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       confirmed_inventory: payloadItems,
       timeout_sec: timeoutSec,
+      force_refresh: Boolean(forceRefresh),
     }),
   })
   return parseJsonResponse(res)

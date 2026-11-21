@@ -121,7 +121,7 @@ def test_task_2_1_extract_frames_and_auto_label(tmp_path, monkeypatch):
     assert isinstance(gem_preds, list)
     assert len(gem_preds) == 1
     assert len(captured_calls) == 1
-    assert captured_calls[0]["timeout_sec"] == 15.0
+    assert captured_calls[0]["timeout_sec"] == 25.0
     assert captured_calls[0]["model_name"] == GEMINI_AUTOLABEL_MODEL
     assert captured_calls[0]["use_cache"] is False
     for item in gem_preds:
