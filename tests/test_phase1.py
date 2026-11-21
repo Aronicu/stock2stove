@@ -148,7 +148,9 @@ def test_task_1_3_yolo_and_temporal_tracker():
         assert det["temporally_confirmed"] is True
 
 
-def test_task_1_4_llm_recipe_engine():
+def test_task_1_4_llm_recipe_engine(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     inventory = ["pasta_noodles", "canned_tomato", "canned_tuna_meat", "eggs", "milk_dairy"]
     res = generate_structured_recipes(inventory, api_key=None, timeout_sec=2.5)
     assert res["latency_ms"] < 2500.0

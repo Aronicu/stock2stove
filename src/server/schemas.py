@@ -1,3 +1,4 @@
+from src.cv.temporal_tracker import extract_positive_calories
 from src.server.config import (
     DEFAULT_CONF_THRESHOLD,
     LLM_TIMEOUT_SECONDS,
@@ -80,6 +81,10 @@ def format_detection_item(det):
             if isinstance(pt, (list, tuple)) and len(pt) >= 2:
                 polygon_norm.append([round(float(pt[0]), 4), round(float(pt[1]), 4)])
 
+    est_calories = extract_positive_calories(det.get("estimated_calories"))
+    if est_calories is None:
+        est_calories = get_class_calories(cls_id, count=1)
+
     return {
         "class_id": cls_id,
         "display_name": str(disp),
@@ -88,7 +93,7 @@ def format_detection_item(det):
         "polygon_norm": polygon_norm,
         "temporally_confirmed": bool(det.get("temporally_confirmed", False)),
         "crop_jpeg_b64": det.get("crop_jpeg_b64"),
-        "estimated_calories": get_class_calories(cls_id, count=1),
+        "estimated_calories": int(est_calories),
     }
 
 
@@ -98,15 +103,23 @@ def format_confirmed_inventory_item(item):
     disp = item.get("display_name") or get_display_name(cls_id)
     count = max(1, int(item.get("count", 1)))
     max_conf = round(float(item.get("max_conf", 0.5)), 2)
-    calories_per_unit = get_class_calories(cls_id, count=1)
-    estimated_calories = get_class_calories(cls_id, count=count)
+
+    calories_per_unit = extract_positive_calories(item.get("calories_per_unit"))
+    if calories_per_unit is None:
+        raw_est = extract_positive_calories(item.get("estimated_calories"))
+        if raw_est is not None:
+            calories_per_unit = max(1, int(round(float(raw_est) / float(count))))
+    if calories_per_unit is None:
+        calories_per_unit = get_class_calories(cls_id, count=1)
+
+    estimated_calories = int(calories_per_unit * count)
     return {
         "class_id": cls_id,
         "display_name": str(disp),
         "count": count,
         "max_conf": max_conf,
         "crop_jpeg_b64": item.get("crop_jpeg_b64"),
-        "calories_per_unit": calories_per_unit,
+        "calories_per_unit": int(calories_per_unit),
         "estimated_calories": estimated_calories,
     }
 
@@ -119,6 +132,7 @@ def format_scan_response(
     detections,
     confirmed_inventory,
     excluded_classes=None,
+    detector_meta=None,
 ):
     inf_ms = round(max(0.01, float(inference_ms)), 2)
     fps = round(1000.0 / inf_ms, 1)
@@ -149,9 +163,19 @@ def format_scan_response(
     if "ransac_inliers" in diagnostics:
         diag_out["ransac_inliers"] = int(diagnostics["ransac_inliers"])
 
+    meta = detector_meta if isinstance(detector_meta, dict) else {}
+    detector_backend = meta.get("backend") or meta.get("detector_backend") or str(detector_mode)
+    live_api = bool(meta.get("live_api", False))
+    cached = bool(meta.get("cached", False))
+    last_error = meta.get("last_error")
+
     return {
         "frame_id": int(frame_id),
         "detector_mode": str(detector_mode),
+        "detector_backend": str(detector_backend),
+        "live_api": live_api,
+        "cached": cached,
+        "last_error": last_error,
         "inference_ms": inf_ms,
         "fps": fps,
         "diagnostics": diag_out,

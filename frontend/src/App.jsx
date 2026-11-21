@@ -12,12 +12,151 @@ import HeaderBar from './components/HeaderBar.jsx'
 import RecipesView from './components/RecipesView.jsx'
 import ScannerView from './components/ScannerView.jsx'
 import {
+  DETECTOR_MODES,
   computeTotalBasketCalories,
   createClientSessionId,
   getCaloriesPerUnit,
   getClassMeta,
   normalizeClassId,
 } from './constants/catalog.js'
+
+const STORAGE_KEY_BASKET = 'stock2stove.basket_items'
+const STORAGE_KEY_EXCLUDED = 'stock2stove.excluded_classes'
+const STORAGE_KEY_PREFS = 'stock2stove.preferences'
+
+function readStoredJson(key, fallbackValue) {
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) {
+      return fallbackValue
+    }
+    const parsed = JSON.parse(raw)
+    return parsed == null ? fallbackValue : parsed
+  } catch {
+    return fallbackValue
+  }
+}
+
+function writeStoredJson(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+  }
+}
+
+function writeStoredBasket(items) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY_BASKET, JSON.stringify(items))
+  } catch {
+    try {
+      const compactItems = items.map(function stripCrop(item) {
+        return {
+          ...item,
+          crop_jpeg_b64: null,
+        }
+      })
+      window.localStorage.setItem(STORAGE_KEY_BASKET, JSON.stringify(compactItems))
+    } catch {
+    }
+  }
+}
+
+function removeStoredKey(key) {
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+  }
+}
+
+function loadInitialPreferences() {
+  const validModes = new Set(DETECTOR_MODES.map(function getModeVal(m) { return m.value }))
+  const raw = readStoredJson(STORAGE_KEY_PREFS, {})
+  const prefs = raw && typeof raw === 'object' ? raw : {}
+
+  const rawMode = typeof prefs.detectorMode === 'string' ? prefs.detectorMode : 'gemini_vision'
+  const detectorMode = validModes.has(rawMode) ? rawMode : 'gemini_vision'
+  const enableClahe = typeof prefs.enableClahe === 'boolean' ? prefs.enableClahe : true
+  const numConf = Number(prefs.confThreshold)
+  const confThreshold = Number.isFinite(numConf) ? Math.max(0.2, Math.min(0.85, numConf)) : 0.45
+  const facingMode = prefs.facingMode === 'user' || prefs.facingMode === 'environment'
+    ? prefs.facingMode
+    : 'environment'
+
+  return {
+    detectorMode,
+    enableClahe,
+    confThreshold,
+    facingMode,
+  }
+}
+
+function loadInitialExcludedClasses() {
+  const raw = readStoredJson(STORAGE_KEY_EXCLUDED, [])
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  const seen = new Set()
+  const out = []
+  for (let i = 0; i < raw.length; i += 1) {
+    const norm = normalizeClassId(raw[i])
+    if (norm && !seen.has(norm)) {
+      seen.add(norm)
+      out.push(norm)
+    }
+  }
+  return out
+}
+
+function resolveItemCalories(item, count, fallbackPerUnit) {
+  const rawPerUnit = Number(item.calories_per_unit)
+  const rawEst = Number(item.estimated_calories)
+  if (Number.isFinite(rawPerUnit) && rawPerUnit > 0) {
+    const perUnit = Math.round(rawPerUnit)
+    const estCalories = Number.isFinite(rawEst) && rawEst > 0 ? Math.round(rawEst) : Math.round(perUnit * count)
+    return { perUnit, estCalories, hasExplicit: true }
+  }
+  if (Number.isFinite(rawEst) && rawEst > 0) {
+    const estCalories = Math.round(rawEst)
+    const perUnit = Math.max(1, Math.round(estCalories / count))
+    return { perUnit, estCalories, hasExplicit: true }
+  }
+  const perUnit = Math.round(fallbackPerUnit)
+  return { perUnit, estCalories: Math.round(perUnit * count), hasExplicit: false }
+}
+
+function loadInitialBasketItems(excludedList) {
+  const raw = readStoredJson(STORAGE_KEY_BASKET, [])
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  const excludedSet = new Set(excludedList.map(normalizeClassId))
+  const out = []
+  for (let i = 0; i < raw.length; i += 1) {
+    const row = raw[i]
+    if (!row || typeof row !== 'object') {
+      continue
+    }
+    const normId = normalizeClassId(row.class_id)
+    if (!normId || excludedSet.has(normId)) {
+      continue
+    }
+    const meta = getClassMeta(normId)
+    const count = Math.max(1, Number(row.count || 1))
+    const fallbackPerUnit = Number(meta.calories_per_unit || getCaloriesPerUnit(normId))
+    const resolved = resolveItemCalories(row, count, fallbackPerUnit)
+    out.push({
+      class_id: normId,
+      display_name: row.display_name || meta.display_name,
+      storage_zone: row.storage_zone || meta.storage_zone,
+      count,
+      max_conf: Number(row.max_conf || 0),
+      crop_jpeg_b64: row.crop_jpeg_b64 || null,
+      calories_per_unit: resolved.perUnit,
+      estimated_calories: resolved.estCalories,
+    })
+  }
+  return out
+}
 
 function mergeBasketInventory(prevItems, incomingItems, excludedList) {
   const excludedSet = new Set(excludedList.map(normalizeClassId))
@@ -39,10 +178,14 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
       continue
     }
     const meta = getClassMeta(normId)
-    const perUnit = Number(inc.calories_per_unit || meta.calories_per_unit || getCaloriesPerUnit(normId))
     const incCount = Math.max(1, Number(inc.count || 1))
     const incConf = Number(inc.max_conf || 0)
     const existing = byClass.get(normId)
+    const defaultPerUnit = Number(meta.calories_per_unit || getCaloriesPerUnit(normId))
+    const existingPerUnit = existing && Number(existing.calories_per_unit) > 0
+      ? Number(existing.calories_per_unit)
+      : defaultPerUnit
+    const resolved = resolveItemCalories(inc, incCount, existingPerUnit)
 
     if (existing) {
       const nextCount = Math.max(Number(existing.count || 1), incCount)
@@ -50,6 +193,12 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
       const nextCrop = inc.crop_jpeg_b64 && (incConf >= Number(existing.max_conf || 0) || !existing.crop_jpeg_b64)
         ? inc.crop_jpeg_b64
         : existing.crop_jpeg_b64
+      let nextEst = Math.round(resolved.perUnit * nextCount)
+      if (resolved.hasExplicit && nextCount === incCount) {
+        nextEst = resolved.estCalories
+      } else if (!resolved.hasExplicit && nextCount === Number(existing.count || 1) && Number(existing.estimated_calories) > 0) {
+        nextEst = Math.round(Number(existing.estimated_calories))
+      }
       byClass.set(normId, {
         class_id: normId,
         display_name: inc.display_name || existing.display_name || meta.display_name,
@@ -57,8 +206,8 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
         count: nextCount,
         max_conf: nextConf,
         crop_jpeg_b64: nextCrop || null,
-        calories_per_unit: perUnit,
-        estimated_calories: perUnit * nextCount,
+        calories_per_unit: resolved.perUnit,
+        estimated_calories: nextEst,
       })
     } else {
       byClass.set(normId, {
@@ -68,8 +217,8 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
         count: incCount,
         max_conf: incConf,
         crop_jpeg_b64: inc.crop_jpeg_b64 || null,
-        calories_per_unit: perUnit,
-        estimated_calories: perUnit * incCount,
+        calories_per_unit: resolved.perUnit,
+        estimated_calories: resolved.estCalories,
       })
     }
   }
@@ -78,15 +227,23 @@ function mergeBasketInventory(prevItems, incomingItems, excludedList) {
 }
 
 export default function App() {
+  const [initialState] = useState(function initPersistedState() {
+    const prefs = loadInitialPreferences()
+    const excluded = loadInitialExcludedClasses()
+    const basket = loadInitialBasketItems(excluded)
+    return { prefs, excluded, basket }
+  })
+
   const [activeTab, setActiveTab] = useState('scanner')
   const [sessionId] = useState(createClientSessionId)
-  const [detectorMode, setDetectorMode] = useState('yolov8')
-  const [enableClahe, setEnableClahe] = useState(true)
-  const [confThreshold, setConfThreshold] = useState(0.45)
+  const [detectorMode, setDetectorMode] = useState(initialState.prefs.detectorMode)
+  const [enableClahe, setEnableClahe] = useState(initialState.prefs.enableClahe)
+  const [confThreshold, setConfThreshold] = useState(initialState.prefs.confThreshold)
+  const [facingMode, setFacingMode] = useState(initialState.prefs.facingMode)
 
-  const [basketItems, setBasketItems] = useState([])
-  const [excludedClasses, setExcludedClasses] = useState([])
-  const excludedRef = useRef([])
+  const [basketItems, setBasketItems] = useState(initialState.basket)
+  const [excludedClasses, setExcludedClasses] = useState(initialState.excluded)
+  const excludedRef = useRef(initialState.excluded)
   const wsSendRef = useRef(null)
 
   const [recipeState, setRecipeState] = useState({
@@ -149,6 +306,23 @@ export default function App() {
   useEffect(function initHealthCheck() {
     refreshHealth()
   }, [refreshHealth])
+
+  useEffect(function persistBasketEffect() {
+    writeStoredBasket(basketItems)
+  }, [basketItems])
+
+  useEffect(function persistExcludedEffect() {
+    writeStoredJson(STORAGE_KEY_EXCLUDED, excludedClasses)
+  }, [excludedClasses])
+
+  useEffect(function persistPrefsEffect() {
+    writeStoredJson(STORAGE_KEY_PREFS, {
+      detectorMode,
+      enableClahe,
+      confThreshold,
+      facingMode,
+    })
+  }, [detectorMode, enableClahe, confThreshold, facingMode])
 
   function registerWsSend(fn) {
     wsSendRef.current = fn
@@ -321,11 +495,12 @@ export default function App() {
         }
         found = true
         const nextCount = Number(item.count || 1) + qty
+        const rowPerUnit = Number(item.calories_per_unit) > 0 ? Number(item.calories_per_unit) : perUnit
         return {
           ...item,
           count: nextCount,
-          calories_per_unit: perUnit,
-          estimated_calories: perUnit * nextCount,
+          calories_per_unit: rowPerUnit,
+          estimated_calories: Math.round(rowPerUnit * nextCount),
         }
       })
       if (!found) {
@@ -349,6 +524,8 @@ export default function App() {
     excludedRef.current = []
     setExcludedClasses([])
     setBasketItems([])
+    removeStoredKey(STORAGE_KEY_BASKET)
+    removeStoredKey(STORAGE_KEY_EXCLUDED)
     appendLog('INFO', 'SESSION', `Reset session ${sessionId}`)
     try {
       await resetBackendSession(sessionId)
@@ -447,6 +624,8 @@ export default function App() {
             onToggleClahe={setEnableClahe}
             confThreshold={confThreshold}
             onChangeConfThreshold={setConfThreshold}
+            facingMode={facingMode}
+            onChangeFacingMode={setFacingMode}
             excludedClasses={excludedClasses}
             basketItems={basketItems}
             onScanUpdate={handleScanUpdate}

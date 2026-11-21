@@ -107,9 +107,29 @@ export default function DiagnosticsModal({
                 </div>
                 <div className="kv-row">
                   <span>Gemini Vision Model</span>
-                  <strong className="mono-text">{geminiStatus.vision_model || 'gemini-3.5-flash-lite'}</strong>
+                  <strong className="mono-text">{geminiStatus.vision_model || 'N/A'}</strong>
+                </div>
+                <div className="kv-row">
+                  <span>Gemini Recipe Model</span>
+                  <strong className="mono-text">{geminiStatus.recipe_model || 'N/A'}</strong>
+                </div>
+                <div className="kv-row">
+                  <span>Thinking Level</span>
+                  <strong className="mono-text">{geminiStatus.thinking_level || 'N/A'}</strong>
+                </div>
+                <div className="kv-row">
+                  <span>Gemini Live Status</span>
+                  <span className={`flag-pill ${geminiStatus.live_api ? 'flag-ok' : 'flag-warn'}`}>
+                    {geminiStatus.live_api ? 'Live API' : 'Offline Fallback'}
+                  </span>
                 </div>
               </div>
+
+              {geminiStatus.last_error && (
+                <div className="alert-warn" role="status">
+                  <strong>Last Gemini Error:</strong> <span>{geminiStatus.last_error}</span>
+                </div>
+              )}
 
               <div className="flags-grid">
                 <StatusFlag label="YOLOv8n Loaded" ok={Boolean(modelStatus.yolov8n_loaded)} />

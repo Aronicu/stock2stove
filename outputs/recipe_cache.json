@@ -297,7 +297,11 @@
         "Flake drained canned tuna or meat into the simmering tomato sauce.",
         "Toss drained pasta into the skillet with reserved water and serve hot."
       ],
-      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce."
+      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce.",
+      "estimated_calories": 220,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220
+      }
     },
     {
       "id": "recipe_creamy_fridge_pasta",
@@ -321,7 +325,11 @@
         "Lower heat and stir in milk, cheese, or butter until a smooth pan sauce forms.",
         "Fold the cooked pasta into the creamy vegetable sauce and season to taste."
       ],
-      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste."
+      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste.",
+      "estimated_calories": 220,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220
+      }
     },
     {
       "id": "recipe_shakshuka_eggs",
@@ -345,7 +353,11 @@
         "Make gentle wells in the tomato sauce and crack eggs directly into each well.",
         "Cover skillet and cook on low for 4 to 5 minutes until egg whites set."
       ],
-      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce."
+      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce.",
+      "estimated_calories": 220,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220
+      }
     }
   ],
   "canned_tomato|pasta_noodles": [
@@ -373,7 +385,12 @@
         "Flake drained canned tuna or meat into the simmering tomato sauce.",
         "Toss drained pasta into the skillet with reserved water and serve hot."
       ],
-      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce."
+      "zero_waste_tip": "Rinse the tomato can with 2 tablespoons of pasta water to capture all remaining sauce.",
+      "estimated_calories": 290,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220,
+        "Canned Tomatoes": 70
+      }
     },
     {
       "id": "recipe_creamy_fridge_pasta",
@@ -397,7 +414,11 @@
         "Lower heat and stir in milk, cheese, or butter until a smooth pan sauce forms.",
         "Fold the cooked pasta into the creamy vegetable sauce and season to taste."
       ],
-      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste."
+      "zero_waste_tip": "Finely chop vegetable stems and saute them first so no fresh produce goes to waste.",
+      "estimated_calories": 220,
+      "ingredient_calories": {
+        "Pasta & Noodles": 220
+      }
     },
     {
       "id": "recipe_shakshuka_eggs",
@@ -421,7 +442,11 @@
         "Make gentle wells in the tomato sauce and crack eggs directly into each well.",
         "Cover skillet and cook on low for 4 to 5 minutes until egg whites set."
       ],
-      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce."
+      "zero_waste_tip": "Serve over toasted bread ends or leftover cooked grains to soak up every drop of sauce.",
+      "estimated_calories": 70,
+      "ingredient_calories": {
+        "Canned Tomatoes": 70
+      }
     }
   ],
   "alien_food|eggs|pasta_noodles": [

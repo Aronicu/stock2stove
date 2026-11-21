@@ -6,10 +6,12 @@ Downstream task: Takes deduplicated detected pantry items from YOLOv8 and genera
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import json
+import math
 import os
 import time
 from typing import List
 
+from src.cv.gemini_detector import get_cached_gemini_client
 from src.server.config import (
     GEMINI_RECIPE_MODEL,
     LLM_TIMEOUT_SECONDS,
@@ -23,6 +25,7 @@ from src.server.config import (
 
 RECIPE_MEMORY_CACHE = {}
 RECIPE_CACHE_FILE = os.path.join(OUTPUTS_DIR, "recipe_cache.json")
+RECIPE_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 
 OFFLINE_RECIPE_BANK = [
     {
@@ -198,7 +201,28 @@ def compute_inventory_total_calories(inventory_items):
         if not raw_val or not is_valid_food_class(raw_val):
             continue
         cls_id = normalize_class_id(raw_val)
-        total_kcal += get_class_calories(cls_id, count=qty)
+        item_kcal = None
+        if isinstance(item, dict):
+            raw_est = item.get("estimated_calories")
+            if raw_est is not None and not isinstance(raw_est, bool):
+                try:
+                    est_val = float(raw_est)
+                    if math.isfinite(est_val) and est_val > 0.0:
+                        item_kcal = int(round(est_val))
+                except (TypeError, ValueError):
+                    item_kcal = None
+            if item_kcal is None:
+                raw_cpu = item.get("calories_per_unit")
+                if raw_cpu is not None and not isinstance(raw_cpu, bool):
+                    try:
+                        cpu_val = float(raw_cpu)
+                        if math.isfinite(cpu_val) and cpu_val > 0.0:
+                            item_kcal = int(round(cpu_val * qty))
+                    except (TypeError, ValueError):
+                        item_kcal = None
+        if item_kcal is None:
+            item_kcal = get_class_calories(cls_id, count=qty)
+        total_kcal += item_kcal
     return int(total_kcal)
 
 
@@ -439,9 +463,8 @@ def parse_llm_recipes_json(raw_text, fallback_classes):
 
 def query_live_llm_worker(prompt, gemini_key, openai_key):
     if gemini_key:
-        from google import genai
-        client = genai.Client(api_key=gemini_key)
-        if hasattr(client, "interactions"):
+        client = get_cached_gemini_client(gemini_key)
+        if client is not None:
             recipe_schema = {
                 "type": "object",
                 "properties": {
@@ -491,13 +514,9 @@ def query_live_llm_worker(prompt, gemini_key, openai_key):
                     "mime_type": "application/json",
                     "schema": recipe_schema,
                 },
+                store=False,
             )
             return interaction.output_text, GEMINI_RECIPE_MODEL
-        response = client.models.generate_content(
-            model=GEMINI_RECIPE_MODEL,
-            contents=prompt,
-        )
-        return response.text, GEMINI_RECIPE_MODEL
 
     if openai_key:
         from openai import OpenAI
@@ -530,11 +549,11 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
 
     if gemini_key or openai_key:
         prompt = build_llm_json_prompt(normalized_classes)
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(query_live_llm_worker, prompt, gemini_key, openai_key)
+        future = RECIPE_EXECUTOR.submit(query_live_llm_worker, prompt, gemini_key, openai_key)
         try:
-            raw_text, source_name = future.result(timeout=float(timeout_sec))
-            executor.shutdown(wait=False, cancel_futures=True)
+            elapsed_before_wait = time.perf_counter() - start_time
+            wait_timeout = max(0.05, float(timeout_sec) - elapsed_before_wait - 0.08)
+            raw_text, source_name = future.result(timeout=wait_timeout)
             cards = parse_llm_recipes_json(raw_text, normalized_classes)
             if cards:
                 RECIPE_MEMORY_CACHE[cache_key] = cards
@@ -551,7 +570,7 @@ def generate_structured_recipes(inventory_items, api_key=None, timeout_sec=LLM_T
                     "recipes": cards,
                 }
         except (FuturesTimeoutError, Exception):
-            executor.shutdown(wait=False, cancel_futures=True)
+            future.cancel()
 
     if cache_key in RECIPE_MEMORY_CACHE:
         mem_cards, changed = enrich_recipe_cards_calories(RECIPE_MEMORY_CACHE[cache_key], normalized_classes)
@@ -635,21 +654,15 @@ def generate_recipes_from_inventory(detected_items: List[str], api_key: str = No
         )
 
     # If Gemini API Key is available
-    if os.getenv("GEMINI_API_KEY"):
+    if os.getenv("GEMINI_API_KEY") or (api_key and not os.getenv("OPENAI_API_KEY")):
         try:
-            from google import genai
-            client = genai.Client(api_key=api_key)
-            if hasattr(client, "interactions"):
-                interaction = client.interactions.create(
-                    model=GEMINI_RECIPE_MODEL,
-                    input=prompt,
-                )
-                return interaction.output_text
-            response = client.models.generate_content(
+            client = get_cached_gemini_client(api_key)
+            interaction = client.interactions.create(
                 model=GEMINI_RECIPE_MODEL,
-                contents=prompt,
+                input=prompt,
+                store=False,
             )
-            return response.text
+            return interaction.output_text
         except Exception as e:
             return f"Error contacting Gemini API: {e}"
 

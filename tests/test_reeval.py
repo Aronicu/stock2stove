@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import torch
+import yaml
 from fastapi.testclient import TestClient
 
 from src.cv.gemini_detector import parse_gemini_boxes
@@ -390,3 +391,594 @@ def test_reeval_react_spa_build_and_serving():
 
     asset_resp = client.get(f"/assets/{asset_files[0]}")
     assert asset_resp.status_code == 200
+
+
+def test_reeval_gemini_api_config_client_and_errors(monkeypatch):
+    import threading
+    import google.genai as genai_mod
+    import src.cv.gemini_detector as gd_mod
+    from src.server.config import get_gemini_thinking_level
+
+    prev_cache_key = gd_mod.GEMINI_CLIENT_CACHE.get("api_key")
+    prev_cache_client = gd_mod.GEMINI_CLIENT_CACHE.get("client")
+    prev_state = dict(gd_mod.GEMINI_RUNTIME_STATE)
+
+    try:
+        monkeypatch.delenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", raising=False)
+        assert get_gemini_thinking_level("gemini-4-hydrogen") == "low"
+        assert get_gemini_thinking_level("gemini-3.5-flash-lite") == "minimal"
+
+        monkeypatch.setenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", "high")
+        assert get_gemini_thinking_level("gemini-4-hydrogen") == "high"
+        monkeypatch.delenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", raising=False)
+
+        dummy_img = np.zeros((120, 120, 3), dtype=np.uint8)
+
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        gd_mod.GEMINI_CLIENT_CACHE["api_key"] = None
+        gd_mod.GEMINI_CLIENT_CACHE["client"] = None
+        res_missing = gd_mod.query_gemini_vision_api(dummy_img, api_key=None)
+        assert res_missing is None
+        assert gd_mod.GEMINI_RUNTIME_STATE["last_error"]
+        assert gd_mod.GEMINI_RUNTIME_STATE["last_live_api"] is False
+
+        recorded_calls = []
+        client_creations = []
+        behavior = {"mode": "error", "wait_event": None}
+
+        def fake_create(**kwargs):
+            recorded_calls.append(dict(kwargs))
+            if behavior["mode"] == "error":
+                raise RuntimeError("boom")
+            if behavior["mode"] == "timeout":
+                behavior["wait_event"].wait(0.25)
+            return SimpleNamespace(
+                errors=None,
+                output_text='{"boxes": []}',
+            )
+
+        def fake_client_factory(api_key=None):
+            client_creations.append(api_key)
+            return SimpleNamespace(interactions=SimpleNamespace(create=fake_create))
+
+        monkeypatch.setattr(genai_mod, "Client", fake_client_factory)
+
+        gd_mod.GEMINI_CLIENT_CACHE["api_key"] = None
+        gd_mod.GEMINI_CLIENT_CACHE["client"] = None
+        behavior["mode"] = "error"
+        res_err = gd_mod.query_gemini_vision_api(dummy_img, api_key="key-1", model_name="gemini-4-hydrogen")
+        assert res_err is None
+        assert "boom" in str(gd_mod.GEMINI_RUNTIME_STATE["last_error"])
+        assert gd_mod.GEMINI_RUNTIME_STATE["last_live_api"] is False
+
+        behavior["mode"] = "timeout"
+        behavior["wait_event"] = threading.Event()
+        res_to = gd_mod.query_gemini_vision_api(dummy_img, api_key="key-1", model_name="gemini-4-hydrogen", timeout_sec=0.02)
+        behavior["wait_event"].set()
+        assert res_to is None
+        assert "timed out" in str(gd_mod.GEMINI_RUNTIME_STATE["last_error"]).lower()
+        assert gd_mod.GEMINI_RUNTIME_STATE["last_live_api"] is False
+
+        behavior["mode"] = "ok"
+        res_ok_1 = gd_mod.query_gemini_vision_api(dummy_img, api_key="key-1", model_name="gemini-4-hydrogen")
+        assert res_ok_1 == '{"boxes": []}'
+        assert gd_mod.GEMINI_RUNTIME_STATE["last_error"] is None
+        assert gd_mod.GEMINI_RUNTIME_STATE["last_live_api"] is True
+
+        res_ok_2 = gd_mod.query_gemini_vision_api(dummy_img, api_key="key-1", model_name="gemini-3.5-flash-lite")
+        assert res_ok_2 == '{"boxes": []}'
+
+        monkeypatch.setenv("STOCK2STOVE_GEMINI_THINKING_LEVEL", "medium")
+        res_ok_3 = gd_mod.query_gemini_vision_api(dummy_img, api_key="key-1", model_name="gemini-4-hydrogen")
+        assert res_ok_3 == '{"boxes": []}'
+
+        assert len(client_creations) == 1
+        assert client_creations[0] == "key-1"
+
+        call_h = recorded_calls[-3]
+        call_fl = recorded_calls[-2]
+        call_env = recorded_calls[-1]
+        for c in (call_h, call_fl, call_env):
+            assert c["store"] is False
+            assert c["response_format"]["type"] == "text"
+            assert c["response_format"]["mime_type"] == "application/json"
+            assert "schema" in c["response_format"]
+            assert "temperature" not in c["generation_config"]
+        assert call_h["generation_config"]["thinking_level"] == "low"
+        assert call_fl["generation_config"]["thinking_level"] == "minimal"
+        assert call_env["generation_config"]["thinking_level"] == "medium"
+    finally:
+        gd_mod.GEMINI_CLIENT_CACHE["api_key"] = prev_cache_key
+        gd_mod.GEMINI_CLIENT_CACHE["client"] = prev_cache_client
+        gd_mod.GEMINI_RUNTIME_STATE.clear()
+        gd_mod.GEMINI_RUNTIME_STATE.update(prev_state)
+
+
+def test_reeval_gemini_schema_prompt_and_parser():
+    from src.cv.gemini_detector import (
+        build_gemini_detection_prompt,
+        build_gemini_detection_schema,
+        clamp_estimated_calories,
+    )
+
+    schema = build_gemini_detection_schema()
+    item_schema = schema["properties"]["boxes"]["items"]
+    props = item_schema["properties"]
+    assert props["class_id"]["enum"] == sorted(VALID_CLASS_IDS)
+    assert props["estimated_calories"]["type"] == "integer"
+    assert "estimated_calories" in item_schema["required"]
+    for field_name in ("box_2d", "class_id", "display_name", "confidence", "estimated_calories"):
+        assert props[field_name].get("description")
+
+    prompt = build_gemini_detection_prompt(excluded_classes=["canned_tomato", "eggs"])
+    prompt_lower = prompt.lower()
+    for non_food_kw in ("books", "cups", "bowls", "plates", "utensils", "appliances"):
+        assert non_food_kw in prompt_lower
+    assert "excluded_classes" in prompt
+    assert "- canned_tomato:" not in prompt
+    assert "- eggs:" not in prompt
+    assert "- pasta_noodles:" in prompt
+
+    assert clamp_estimated_calories(320, "pasta_noodles") == 320
+    assert clamp_estimated_calories(5, "pasta_noodles") == 15
+    assert clamp_estimated_calories(2900, "pasta_noodles") == 2500
+    assert clamp_estimated_calories(3500, "pasta_noodles") == get_class_calories("pasta_noodles", 1)
+    assert clamp_estimated_calories(0, "pasta_noodles") == get_class_calories("pasta_noodles", 1)
+    assert clamp_estimated_calories("bad", "pasta_noodles") == get_class_calories("pasta_noodles", 1)
+
+    raw_json = json.dumps({
+        "boxes": [
+            {"box_2d": [100, 100, 400, 350], "class_id": "book", "display_name": "Cookbook", "confidence": 0.95, "estimated_calories": 100},
+            {"box_2d": [100, 100, 400, 350], "class_id": "canned_tomato", "display_name": "Mutti", "confidence": 0.94, "estimated_calories": 95},
+            {"box_2d": [100, 400, 400, 700], "class_id": "pasta_noodles", "display_name": "Barilla", "confidence": 0.91, "estimated_calories": 320},
+            {"box_2d": [450, 100, 750, 350], "class_id": "fresh_produce", "display_name": "Mini Berry", "confidence": 0.88, "estimated_calories": 4},
+            {"box_2d": [450, 400, 750, 700], "class_id": "cereal_grains", "display_name": "Bulk Oats", "confidence": 0.87, "estimated_calories": 3500},
+        ]
+    })
+    parsed = parse_gemini_boxes(raw_json, conf_threshold=0.45, excluded_classes=["canned_tomato"])
+    assert [d["class_id"] for d in parsed] == ["pasta_noodles", "fresh_produce", "cereal_grains"]
+    assert parsed[0]["estimated_calories"] == 320
+    assert parsed[1]["estimated_calories"] == 15
+    assert parsed[2]["estimated_calories"] == get_class_calories("cereal_grains", 1)
+
+
+def test_reeval_per_item_calories_end_to_end(monkeypatch):
+    import src.run as run_mod
+    import src.server.app as app_mod
+    from src.llm_recipe import compute_inventory_total_calories
+    from src.server.schemas import format_confirmed_inventory_item, format_detection_item
+
+    fmt_det = format_detection_item({
+        "class_id": "pasta_noodles",
+        "display_name": "Barilla",
+        "confidence": 0.92,
+        "bbox_norm": [0.1, 0.1, 0.4, 0.4],
+        "estimated_calories": 380,
+    })
+    assert fmt_det["estimated_calories"] == 380
+
+    tracker = create_tracker_state(window_size=5, min_hits=2, conf_threshold=0.45, iou_threshold=0.45)
+    frame_dets = [
+        {"class_id": "pasta_noodles", "display_name": "Barilla", "confidence": 0.91, "bbox_norm": [0.05, 0.1, 0.35, 0.6], "estimated_calories": 380},
+        {"class_id": "pasta_noodles", "display_name": "Barilla", "confidence": 0.89, "bbox_norm": [0.55, 0.1, 0.85, 0.6], "estimated_calories": 380},
+    ]
+    update_temporal_tracker(tracker, frame_dets)
+    ann_2, conf_2 = update_temporal_tracker(tracker, frame_dets)
+    assert ann_2[0]["estimated_calories"] == 380
+    assert conf_2[0]["calories_per_unit"] == 380
+    assert conf_2[0]["estimated_calories"] == 760
+
+    fmt_inv_1 = format_confirmed_inventory_item({"class_id": "pasta_noodles", "count": 2, "calories_per_unit": 380})
+    assert fmt_inv_1["calories_per_unit"] == 380
+    assert fmt_inv_1["estimated_calories"] == 760
+
+    fmt_inv_2 = format_confirmed_inventory_item({"class_id": "pasta_noodles", "count": 2, "estimated_calories": 760})
+    assert fmt_inv_2["calories_per_unit"] == 380
+    assert fmt_inv_2["estimated_calories"] == 760
+
+    total_cals = compute_inventory_total_calories([
+        {"class_id": "pasta_noodles", "count": 2, "calories_per_unit": 380},
+        {"class_id": "canned_tomato", "count": 1, "estimated_calories": 95},
+    ])
+    assert total_cals == 855
+
+    fake_gem_dets = [
+        {"class_id": "pasta_noodles", "display_name": "Barilla", "confidence": 0.92, "bbox_norm": [0.1, 0.1, 0.4, 0.5], "polygon_norm": None, "temporally_confirmed": False, "estimated_calories": 380},
+        {"class_id": "canned_tomato", "display_name": "Mutti", "confidence": 0.89, "bbox_norm": [0.5, 0.1, 0.8, 0.5], "polygon_norm": None, "temporally_confirmed": False, "estimated_calories": 95},
+    ]
+    fake_gem_meta = {
+        "detector_mode": "gemini_vision",
+        "backend": "gemini-4-hydrogen",
+        "live_api": True,
+        "cached": False,
+        "last_error": None,
+    }
+    monkeypatch.setattr(run_mod, "run_gemini_detection", lambda *args, **kwargs: (list(fake_gem_dets), dict(fake_gem_meta)))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    client = TestClient(app_mod.app)
+    ui_resp = client.post("/api/v1/ui/detect", json={"sample_name": "pantry_images_cv_01.jpg"})
+    assert ui_resp.status_code == 200
+    ui_data = ui_resp.json()
+    assert [d["estimated_calories"] for d in ui_data["detections"]] == [380, 95]
+    inv_map = {item["class_id"]: item for item in ui_data["confirmed_inventory"]}
+    assert inv_map["pasta_noodles"]["calories_per_unit"] == 380
+    assert inv_map["pasta_noodles"]["estimated_calories"] == 380
+    assert inv_map["canned_tomato"]["calories_per_unit"] == 95
+    assert inv_map["canned_tomato"]["estimated_calories"] == 95
+    assert ui_data["total_estimated_calories"] == 475
+    assert ui_data["total_inventory_calories"] == 475
+
+
+def test_reeval_gemini_offline_fallback_skips_opencv(monkeypatch):
+    import src.cv.gemini_detector as gd_mod
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    dummy_img = np.zeros((160, 160, 3), dtype=np.uint8)
+
+    opencv_calls = []
+
+    def fake_opencv(*args, **kwargs):
+        opencv_calls.append(True)
+        return [
+            {
+                "class_id": "fresh_produce",
+                "display_name": "Fresh Produce",
+                "confidence": 0.70,
+                "bbox_norm": [0.2, 0.2, 0.5, 0.5],
+                "polygon_norm": None,
+                "temporally_confirmed": False,
+                "estimated_calories": 55,
+            }
+        ]
+
+    monkeypatch.setattr(gd_mod, "run_opencv_region_fallback", fake_opencv)
+    monkeypatch.setattr(
+        gd_mod,
+        "run_yolo_detection",
+        lambda *args, **kwargs: (
+            [
+                {
+                    "class_id": "pasta_noodles",
+                    "display_name": "Pasta & Noodles",
+                    "confidence": 0.88,
+                    "bbox_norm": [0.1, 0.1, 0.4, 0.4],
+                    "polygon_norm": None,
+                    "temporally_confirmed": False,
+                    "estimated_calories": 220,
+                }
+            ],
+            {"detector_mode": "yolov8", "backend": "ultralytics", "weights_path": "mock.pt"},
+        ),
+    )
+
+    dets_yolo, meta_yolo = gd_mod.run_gemini_detection(dummy_img, conf_threshold=0.45, use_cache=False)
+    assert len(opencv_calls) == 0
+    assert meta_yolo["backend"] == "yolov8_offline_fallback"
+    assert meta_yolo["live_api"] is False
+    assert len(dets_yolo) == 1
+
+    monkeypatch.setattr(
+        gd_mod,
+        "run_yolo_detection",
+        lambda *args, **kwargs: ([], {"detector_mode": "yolov8", "backend": "no_model_empty", "weights_path": "none"}),
+    )
+    dets_cv, meta_cv = gd_mod.run_gemini_detection(dummy_img, conf_threshold=0.45, use_cache=False)
+    assert len(opencv_calls) == 1
+    assert meta_cv["backend"] == "opencv_offline_fallback"
+    assert meta_cv["live_api"] is False
+    assert len(dets_cv) == 1
+
+
+def test_reeval_gemini_temporal_voting(monkeypatch):
+    import src.server.app as app_mod
+
+    img = cv2.imread(os.path.join(SAMPLES_DIR, "pantry_images_cv_01.jpg"))
+    assert img is not None
+
+    current_conf = {"value": 0.75}
+
+    def fake_gemini(bgr, **kwargs):
+        return (
+            [
+                {
+                    "class_id": "pasta_noodles",
+                    "display_name": "Spaghetti",
+                    "confidence": current_conf["value"],
+                    "bbox_norm": [0.1, 0.1, 0.4, 0.5],
+                    "polygon_norm": None,
+                    "temporally_confirmed": False,
+                    "estimated_calories": 280,
+                }
+            ],
+            {
+                "detector_mode": "gemini_vision",
+                "backend": "gemini-4-hydrogen",
+                "live_api": True,
+                "cached": False,
+                "last_error": None,
+            },
+        )
+
+    monkeypatch.setattr(app_mod, "run_gemini_detection", fake_gemini)
+
+    sid_low = "reeval_gem_vote_low"
+    sid_high = "reeval_gem_vote_high"
+    remove_session(sid_low)
+    remove_session(sid_high)
+    reset_session(sid_low)
+    reset_session(sid_high)
+
+    try:
+        current_conf["value"] = 0.75
+        res_1 = app_mod.execute_single_frame_pipeline(img, detector_mode="gemini_vision", session_id=sid_low, frame_id=1)
+        assert res_1["confirmed_inventory"] == []
+        assert res_1["detections"][0]["temporally_confirmed"] is False
+
+        res_2 = app_mod.execute_single_frame_pipeline(img, detector_mode="gemini_vision", session_id=sid_low, frame_id=2)
+        assert len(res_2["confirmed_inventory"]) == 1
+        assert res_2["confirmed_inventory"][0]["class_id"] == "pasta_noodles"
+        assert res_2["detections"][0]["temporally_confirmed"] is True
+
+        current_conf["value"] = 0.86
+        res_fast = app_mod.execute_single_frame_pipeline(img, detector_mode="gemini_vision", session_id=sid_high, frame_id=1)
+        assert len(res_fast["confirmed_inventory"]) == 1
+        assert res_fast["confirmed_inventory"][0]["class_id"] == "pasta_noodles"
+        assert res_fast["detections"][0]["temporally_confirmed"] is True
+    finally:
+        remove_session(sid_low)
+        remove_session(sid_high)
+
+
+def test_reeval_metadata_propagation_health_and_interactions(monkeypatch):
+    import inspect
+    import google.genai as genai_mod
+    import src.cv.gemini_detector as gd_mod
+    import src.llm_recipe as llm_mod
+    import src.run as run_mod
+    import src.server.app as app_mod
+
+    llm_source = inspect.getsource(llm_mod)
+    assert "interactions.create" in llm_source
+    assert "generate_content" not in llm_source
+
+    prev_cache_key = gd_mod.GEMINI_CLIENT_CACHE.get("api_key")
+    prev_cache_client = gd_mod.GEMINI_CLIENT_CACHE.get("client")
+    try:
+        llm_calls = []
+
+        def fake_llm_create(**kwargs):
+            llm_calls.append(dict(kwargs))
+            return SimpleNamespace(output_text='{"recipes": []}')
+
+        def fake_llm_client_factory(api_key=None):
+            return SimpleNamespace(interactions=SimpleNamespace(create=fake_llm_create))
+
+        gd_mod.GEMINI_CLIENT_CACHE["api_key"] = None
+        gd_mod.GEMINI_CLIENT_CACHE["client"] = None
+        monkeypatch.setattr(genai_mod, "Client", fake_llm_client_factory)
+        out_txt, _ = llm_mod.query_live_llm_worker("test prompt", "recipe-key", None)
+        assert out_txt == '{"recipes": []}'
+        assert len(llm_calls) == 1
+        assert llm_calls[0]["store"] is False
+    finally:
+        gd_mod.GEMINI_CLIENT_CACHE["api_key"] = prev_cache_key
+        gd_mod.GEMINI_CLIENT_CACHE["client"] = prev_cache_client
+
+    gem_det = [
+        {
+            "class_id": "pasta_noodles",
+            "display_name": "De Cecco",
+            "confidence": 0.91,
+            "bbox_norm": [0.1, 0.1, 0.4, 0.5],
+            "polygon_norm": None,
+            "temporally_confirmed": False,
+            "estimated_calories": 310,
+        }
+    ]
+    gem_meta = {
+        "detector_mode": "gemini_vision",
+        "backend": "gemini-4-hydrogen",
+        "live_api": True,
+        "cached": True,
+        "last_error": None,
+    }
+    hyb_meta = {
+        "detector_mode": "hybrid_gemini",
+        "backend": "ultralytics+gemini-4-hydrogen",
+        "yolo_backend": "ultralytics",
+        "gemini_backend": "gemini-4-hydrogen",
+        "live_api": True,
+        "cached": False,
+        "last_error": None,
+    }
+
+    monkeypatch.setattr(run_mod, "run_gemini_detection", lambda *args, **kwargs: (list(gem_det), dict(gem_meta)))
+    monkeypatch.setattr(app_mod, "run_gemini_detection", lambda *args, **kwargs: (list(gem_det), dict(gem_meta)))
+    monkeypatch.setattr(app_mod, "run_hybrid_gemini_detection", lambda *args, **kwargs: (list(gem_det), dict(hyb_meta)))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    client = TestClient(app_mod.app)
+
+    health_resp = client.get("/api/v1/health")
+    assert health_resp.status_code == 200
+    ms = health_resp.json()["model_status"]
+    for key in ("yolov8n_loaded", "weights_path", "orb_ready", "sift_ready", "gemini_status"):
+        assert key in ms
+    gs = ms["gemini_status"]
+    for key in ("api_key_configured", "vision_model", "recipe_model", "thinking_level", "live_api", "last_error", "cache_entries"):
+        assert key in gs
+
+    ui_resp = client.post("/api/v1/ui/detect", json={"sample_name": "pantry_images_cv_01.jpg"})
+    assert ui_resp.status_code == 200
+    ui_data = ui_resp.json()
+    assert ui_data["detector_backend"] == "gemini-4-hydrogen"
+    assert ui_data["live_api"] is True
+    assert ui_data["cached"] is True
+    assert ui_data["last_error"] is None
+
+    scan_resp = client.post("/api/v1/scan/image", json={"sample_name": "pantry_images_cv_01.jpg"})
+    assert scan_resp.status_code == 200
+    scan_data = scan_resp.json()
+    assert scan_data["gemini_vision"]["detector_backend"] == "gemini-4-hydrogen"
+    assert scan_data["gemini_vision"]["live_api"] is True
+    assert scan_data["gemini_vision"]["cached"] is True
+    assert scan_data["hybrid_gemini"]["detector_backend"] == "ultralytics+gemini-4-hydrogen"
+    assert scan_data["hybrid_gemini"]["live_api"] is True
+    assert scan_data["hybrid_gemini"]["cached"] is False
+
+    sample_bgr = cv2.imread(os.path.join(SAMPLES_DIR, "pantry_images_cv_01.jpg"))
+    sample_b64 = encode_image_base64_jpeg(sample_bgr, quality=75)
+    with client.websocket_connect("/ws/scan") as ws:
+        ws.send_json({
+            "frame_id": 1,
+            "detector_mode": "gemini_vision",
+            "enable_clahe": True,
+            "conf_threshold": 0.45,
+            "image_b64": sample_b64,
+        })
+        ws_msg = ws.receive_json()
+        assert ws_msg["detector_backend"] == "gemini-4-hydrogen"
+        assert ws_msg["live_api"] is True
+        assert ws_msg["cached"] is True
+        assert ws_msg["last_error"] is None
+
+
+def test_reeval_evaluate_all_include_gemini(tmp_path, monkeypatch):
+    import sys
+    import src.training.evaluate_all as eval_mod
+
+    test_img_dir = tmp_path / "test" / "images"
+    test_lbl_dir = tmp_path / "test" / "labels"
+    neg_dir = tmp_path / "pantry_negatives"
+    test_img_dir.mkdir(parents=True, exist_ok=True)
+    test_lbl_dir.mkdir(parents=True, exist_ok=True)
+    neg_dir.mkdir(parents=True, exist_ok=True)
+
+    dummy_img = np.full((128, 128, 3), 180, dtype=np.uint8)
+    cv2.imwrite(str(test_img_dir / "sample_01.jpg"), dummy_img)
+    with open(test_lbl_dir / "sample_01.txt", "w", encoding="utf-8") as f:
+        f.write("0 0.500000 0.500000 0.400000 0.400000\n")
+    cv2.imwrite(str(neg_dir / "neg_01.jpg"), dummy_img)
+
+    data_yaml_path = tmp_path / "data.yaml"
+    with open(data_yaml_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(
+            {
+                "path": str(tmp_path),
+                "test": "test/images",
+                "nc": 8,
+                "names": {0: "pasta_noodles", 1: "canned_tomato", 2: "canned_tuna_meat"},
+            },
+            f,
+        )
+
+    mock_box = [
+        {
+            "class_id": "pasta_noodles",
+            "display_name": "Pasta & Noodles",
+            "confidence": 0.90,
+            "bbox_norm": [0.30, 0.30, 0.70, 0.70],
+        }
+    ]
+    monkeypatch.setattr(eval_mod, "load_ultralytics_detector", lambda mode="yolov8": (None, "mock.pt"))
+    monkeypatch.setattr(eval_mod, "load_templates_for_mode", lambda mode="orb_baseline": [])
+    monkeypatch.setattr(eval_mod, "run_baseline_detection", lambda *args, **kwargs: (list(mock_box), {}))
+    monkeypatch.setattr(eval_mod, "run_yolo_detection", lambda *args, **kwargs: (list(mock_box), {"backend": "ultralytics"}))
+    monkeypatch.setattr(eval_mod, "run_gemini_detection", lambda *args, **kwargs: (list(mock_box), {"backend": "gemini-4-hydrogen", "live_api": True}))
+    monkeypatch.setattr(eval_mod, "run_hybrid_gemini_detection", lambda *args, **kwargs: (list(mock_box), {"backend": "ultralytics+gemini-4-hydrogen", "live_api": True}))
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    skip_summary = eval_mod.run_benchmark_suite(
+        str(data_yaml_path),
+        str(tmp_path / "skip.csv"),
+        str(tmp_path / "skip.json"),
+        str(tmp_path / "skip.png"),
+        include_gemini=True,
+    )
+    assert skip_summary["include_gemini"] is False
+    assert skip_summary["detectors"] == ["orb_baseline", "sift_baseline", "yolov8n_finetuned"]
+    assert "gemini_vision" not in skip_summary["false_meat_by_detector"]
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    plot_path = tmp_path / "all5.png"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate_all.py",
+            "--data",
+            str(data_yaml_path),
+            "--output-csv",
+            str(tmp_path / "all5.csv"),
+            "--output-json",
+            str(tmp_path / "all5.json"),
+            "--output-plot",
+            str(plot_path),
+            "--include-gemini",
+        ],
+    )
+    eval_mod.main()
+    with open(tmp_path / "all5.json", "r", encoding="utf-8") as f:
+        full_summary = json.load(f)
+    assert full_summary["include_gemini"] is True
+    assert full_summary["detectors"] == [
+        "orb_baseline",
+        "sift_baseline",
+        "yolov8n_finetuned",
+        "gemini_vision",
+        "hybrid_gemini",
+    ]
+    assert len(full_summary["results"]) == 15
+    assert "gemini_vision" in full_summary["false_meat_by_detector"]
+    assert "hybrid_gemini" in full_summary["false_meat_by_detector"]
+    assert os.path.isfile(plot_path)
+    assert os.path.getsize(plot_path) > 0
+
+
+def test_reeval_spa_pwa_and_android_retirement(tmp_path, monkeypatch):
+    import src.server.app as app_mod
+    from src.server.config import PROJECT_ROOT
+
+    assert not hasattr(app_mod, "handle_web_ui")
+    assert not hasattr(app_mod, "HTMLResponse")
+    assert not os.path.exists(os.path.join(PROJECT_ROOT, "android"))
+    assert not os.path.exists(os.path.join(PROJECT_ROOT, "app-debug.apk"))
+    assert not os.path.exists(os.path.join(PROJECT_ROOT, "app-release.apk"))
+
+    client = TestClient(app_mod.app)
+
+    manifest_resp = client.get("/manifest.webmanifest")
+    assert manifest_resp.status_code == 200
+    assert "application/manifest+json" in manifest_resp.headers.get("content-type", "")
+    manifest_data = manifest_resp.json()
+    assert "icons" in manifest_data
+
+    icon_192 = client.get("/icons/icon-192.png")
+    assert icon_192.status_code == 200
+    icon_512 = client.get("/icons/icon-512.png")
+    assert icon_512.status_code == 200
+    fav_resp = client.get("/favicon.png")
+    assert fav_resp.status_code == 200
+
+    spa_resp = client.get("/basket/recipes")
+    assert spa_resp.status_code == 200
+    assert '<div id="root"></div>' in spa_resp.text
+
+    api_404 = client.get("/api/nonexistent")
+    assert api_404.status_code == 404
+    assert "error" in api_404.json()
+
+    ws_404 = client.get("/ws/nonexistent")
+    assert ws_404.status_code == 404
+    assert "error" in ws_404.json()
+
+    monkeypatch.setattr(app_mod, "FRONTEND_DIST_DIR", str(tmp_path))
+    missing_root = client.get("/")
+    assert missing_root.status_code == 503
+    assert "error" in missing_root.json()
+    missing_spa = client.get("/basket")
+    assert missing_spa.status_code == 503
+    assert "error" in missing_spa.json()

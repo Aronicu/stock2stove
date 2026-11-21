@@ -8,10 +8,14 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.cv.baseline_detector import ensure_reference_templates, run_baseline_detection
+from src.cv.baseline_detector import (
+    ensure_reference_templates,
+    load_templates_for_mode,
+    run_baseline_detection,
+)
 from src.cv.gemini_detector import (
     get_gemini_detector_status,
     run_gemini_detection,
@@ -24,13 +28,24 @@ from src.cv.preprocess import (
     encode_image_base64_jpeg,
     preprocess_frame,
 )
-from src.cv.temporal_tracker import create_tracker_state, update_temporal_tracker
-from src.cv.yolo_detector import get_yolo_model_status, run_yolo_detection
+from src.cv.temporal_tracker import (
+    compute_median_unit_calories,
+    create_tracker_state,
+    extract_positive_calories,
+    update_temporal_tracker,
+)
+from src.cv.yolo_detector import (
+    get_yolo_model_status,
+    load_ultralytics_detector,
+    run_yolo_detection,
+)
 from src.llm_recipe import generate_structured_recipes
 from src.run import render, run_single_frame
 from src.server.config import (
     DEFAULT_CONF_THRESHOLD,
     FRONTEND_DIST_DIR,
+    GEMINI_FAST_CONFIRM_CONF,
+    GEMINI_TEMPORAL_MIN_HITS,
     HOST,
     PORT,
     SAMPLES_DIR,
@@ -151,6 +166,8 @@ def execute_single_frame_pipeline(
     )
     resized_bgr = prep.get("resized_bgr", prep["enhanced_bgr"])
     diagnostics = dict(prep["diagnostics"])
+    excluded_list = get_session_excluded_classes(session_id) if session_id is not None else []
+    detector_meta = {}
 
     if mode in ("orb_baseline", "sift_baseline"):
         raw_dets, extra_diag = run_baseline_detection(
@@ -160,24 +177,28 @@ def execute_single_frame_pipeline(
         )
         diagnostics["good_matches"] = int(extra_diag.get("good_matches", 0))
         diagnostics["ransac_inliers"] = int(extra_diag.get("ransac_inliers", 0))
+        detector_meta = dict(extra_diag)
+        if "backend" not in detector_meta:
+            detector_meta["backend"] = mode
     elif mode == "gemini_vision":
-        raw_dets, _ = run_gemini_detection(
+        raw_dets, detector_meta = run_gemini_detection(
             resized_bgr,
             conf_threshold=float(conf_threshold),
+            excluded_classes=excluded_list,
         )
     elif mode == "hybrid_gemini":
-        raw_dets, _ = run_hybrid_gemini_detection(
+        raw_dets, detector_meta = run_hybrid_gemini_detection(
             resized_bgr,
             conf_threshold=float(conf_threshold),
+            excluded_classes=excluded_list,
         )
     else:
-        raw_dets, _ = run_yolo_detection(
+        raw_dets, detector_meta = run_yolo_detection(
             resized_bgr,
             mode=mode,
             conf_threshold=float(conf_threshold),
         )
 
-    excluded_list = get_session_excluded_classes(session_id) if session_id is not None else []
     filtered_raw_dets = filter_valid_detections(raw_dets, excluded_classes=excluded_list)
 
     for det in filtered_raw_dets:
@@ -188,8 +209,8 @@ def execute_single_frame_pipeline(
             )
 
     if session_id is not None:
-        min_hits_override = 1 if mode == "gemini_vision" else None
-        fast_confirm_conf = 0.80 if mode in ("gemini_vision", "hybrid_gemini") else None
+        min_hits_override = GEMINI_TEMPORAL_MIN_HITS if mode == "gemini_vision" else None
+        fast_confirm_conf = GEMINI_FAST_CONFIRM_CONF if mode in ("gemini_vision", "hybrid_gemini") else None
         dets, confirmed = record_session_frame(
             session_id,
             filtered_raw_dets,
@@ -218,6 +239,7 @@ def execute_single_frame_pipeline(
         detections=dets,
         confirmed_inventory=confirmed,
         excluded_classes=excluded_list,
+        detector_meta=detector_meta,
     )
 
 
@@ -296,6 +318,21 @@ async def extract_bgr_from_request(request):
 async def handle_health(request: Request):
     ensure_reference_templates(templates_dir=TEMPLATES_DIR, samples_dir=SAMPLES_DIR)
     model_status = get_yolo_model_status()
+    yolo_model, yolo_weights = load_ultralytics_detector(mode="yolov8")
+    orb_ready = False
+    sift_ready = False
+    try:
+        orb_ready = len(load_templates_for_mode(mode="orb_baseline", templates_dir=TEMPLATES_DIR)) > 0
+    except Exception:
+        orb_ready = False
+    try:
+        sift_ready = len(load_templates_for_mode(mode="sift_baseline", templates_dir=TEMPLATES_DIR)) > 0
+    except Exception:
+        sift_ready = False
+    model_status["yolov8n_loaded"] = bool(yolo_model is not None)
+    model_status["weights_path"] = yolo_weights or model_status.get("active_weights")
+    model_status["orb_ready"] = bool(orb_ready)
+    model_status["sift_ready"] = bool(sift_ready)
     model_status["gemini_status"] = get_gemini_detector_status()
     hardware_info = {
         "os": platform.system(),
@@ -397,6 +434,9 @@ async def handle_scan_image(request: Request):
             "fps": gemini_res["fps"],
             "detection_count": len(gemini_res["detections"]),
             "mean_confidence": gemini_mean_conf,
+            "detector_backend": gemini_res.get("detector_backend"),
+            "live_api": bool(gemini_res.get("live_api", False)),
+            "cached": bool(gemini_res.get("cached", False)),
             "detections": gemini_res["detections"],
         },
         "hybrid_gemini": {
@@ -404,6 +444,9 @@ async def handle_scan_image(request: Request):
             "fps": hybrid_res["fps"],
             "detection_count": len(hybrid_res["detections"]),
             "mean_confidence": hybrid_mean_conf,
+            "detector_backend": hybrid_res.get("detector_backend"),
+            "live_api": bool(hybrid_res.get("live_api", False)),
+            "cached": bool(hybrid_res.get("cached", False)),
             "detections": hybrid_res["detections"],
         },
         "orb_baseline": {
@@ -728,7 +771,7 @@ async def handle_ws_scan(websocket: WebSocket):
 
 async def handle_ui_detect(request: Request):
     content_type = request.headers.get("content-type", "").lower()
-    detector_mode = "yolov8"
+    detector_mode = "gemini_vision"
     enable_clahe = True
     conf_threshold = 0.45
     bgr_image = None
@@ -739,7 +782,7 @@ async def handle_ui_detect(request: Request):
     try:
         if "multipart/form-data" in content_type:
             form = await request.form()
-            detector_mode = validate_detector_mode(form.get("detector_mode", "yolov8"))
+            detector_mode = validate_detector_mode(form.get("detector_mode") or "gemini_vision")
             enable_clahe = str(form.get("enable_clahe", "true")).lower() not in ("false", "0", "no")
             conf_threshold = float(form.get("conf_threshold", "0.45"))
             req_session_id = form.get("session_id")
@@ -769,7 +812,7 @@ async def handle_ui_detect(request: Request):
                 body = {}
             if not isinstance(body, dict):
                 body = {}
-            detector_mode = validate_detector_mode(body.get("detector_mode", "yolov8"))
+            detector_mode = validate_detector_mode(body.get("detector_mode") or "gemini_vision")
             enable_clahe = bool(body.get("enable_clahe", True))
             conf_threshold = float(body.get("conf_threshold", 0.45))
             req_session_id = body.get("session_id")
@@ -801,7 +844,10 @@ async def handle_ui_detect(request: Request):
         enable_clahe=enable_clahe,
         conf_threshold=conf_threshold,
         source_name=source_name,
+        excluded_classes=excluded_set,
     )
+    infer_meta = res.get("infer_meta") or {}
+    detector_backend = infer_meta.get("backend") or detector_mode
     post = res["postprocessed"]
     filtered_dets = filter_valid_detections(post.get("detections", []), excluded_classes=excluded_set)
 
@@ -814,6 +860,7 @@ async def handle_ui_detect(request: Request):
         if not crop_b64:
             crop_b64 = crop_detection_base64_jpeg(bgr_image, det.get("bbox_norm"))
             det["crop_jpeg_b64"] = crop_b64
+        unit_kcal = extract_positive_calories(det.get("estimated_calories")) or get_class_calories(cls_id, count=1)
         counts_by_class[cls_id] = counts_by_class.get(cls_id, 0) + 1
         if cls_id not in grouped:
             grouped[cls_id] = {
@@ -822,9 +869,11 @@ async def handle_ui_detect(request: Request):
                 "count": 1,
                 "max_conf": conf_val,
                 "crop_jpeg_b64": crop_b64,
+                "unit_calories": [unit_kcal],
             }
         else:
             grouped[cls_id]["count"] += 1
+            grouped[cls_id]["unit_calories"].append(unit_kcal)
             if conf_val > grouped[cls_id]["max_conf"]:
                 grouped[cls_id]["max_conf"] = conf_val
                 if crop_b64:
@@ -835,7 +884,10 @@ async def handle_ui_detect(request: Request):
     confirmed_inventory = []
     total_estimated_calories = 0
     for cls_id in sorted(grouped.keys()):
-        formatted_item = format_confirmed_inventory_item(grouped[cls_id])
+        group_entry = grouped[cls_id]
+        unit_cals = group_entry.get("unit_calories") or []
+        group_entry["calories_per_unit"] = compute_median_unit_calories(unit_cals, cls_id)
+        formatted_item = format_confirmed_inventory_item(group_entry)
         confirmed_inventory.append(formatted_item)
         total_estimated_calories += int(formatted_item["estimated_calories"])
 
@@ -858,14 +910,23 @@ async def handle_ui_detect(request: Request):
     for idx, lbl in enumerate(rendered["labels"]):
         lbl_copy = dict(lbl)
         cls_id = normalize_class_id(lbl_copy.get("class_id") or "")
-        lbl_copy["estimated_calories"] = get_class_calories(cls_id, count=1)
+        raw_kcal = lbl_copy.get("estimated_calories")
         if idx < len(filtered_dets):
-            lbl_copy["crop_jpeg_b64"] = filtered_dets[idx].get("crop_jpeg_b64")
+            det_src = filtered_dets[idx]
+            lbl_copy["crop_jpeg_b64"] = det_src.get("crop_jpeg_b64")
+            if det_src.get("estimated_calories") is not None:
+                raw_kcal = det_src.get("estimated_calories")
+        lbl_copy["estimated_calories"] = extract_positive_calories(raw_kcal) or get_class_calories(cls_id, count=1)
         detections_out.append(lbl_copy)
 
     items_for_recipes = []
     for inv_item in confirmed_inventory:
-        items_for_recipes.append({"class_id": inv_item["class_id"], "count": int(inv_item["count"])})
+        items_for_recipes.append({
+            "class_id": inv_item["class_id"],
+            "count": int(inv_item["count"]),
+            "calories_per_unit": int(inv_item["calories_per_unit"]),
+            "estimated_calories": int(inv_item["estimated_calories"]),
+        })
 
     recipes_payload = {
         "recipes": [],
@@ -882,6 +943,10 @@ async def handle_ui_detect(request: Request):
     return JSONResponse({
         "source": source_name,
         "detector_mode": detector_mode,
+        "detector_backend": detector_backend,
+        "live_api": bool(infer_meta.get("live_api", False)),
+        "cached": bool(infer_meta.get("cached", False)),
+        "last_error": infer_meta.get("last_error"),
         "enable_clahe": bool(enable_clahe),
         "conf_threshold": float(conf_threshold),
         "inference_ms": elapsed_ms,
@@ -900,257 +965,57 @@ async def handle_ui_detect(request: Request):
     })
 
 
-async def handle_web_ui(request: Request):
-    sample_options = []
-    for idx in range(1, 11):
-        fname = f"pantry_images_cv_{idx:02d}.jpg"
-        sample_options.append(f'<option value="{fname}">{fname}</option>')
-    options_html = "".join(sample_options)
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Stock-to-Stove | Pantry CV Dashboard</title>
-<style>
-  body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }}
-  header {{ background: #1e293b; padding: 14px 24px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }}
-  header h1 {{ margin: 0; font-size: 18px; color: #38bdf8; }}
-  header span {{ font-size: 12px; color: #94a3b8; }}
-  .container {{ max-width: 1200px; margin: 18px auto; padding: 0 18px; display: grid; grid-template-columns: 340px 1fr; gap: 18px; }}
-  .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px; }}
-  .card h2 {{ margin: 0 0 10px 0; font-size: 14px; color: #f8fafc; border-bottom: 1px solid #334155; padding-bottom: 6px; }}
-  label {{ display: block; font-size: 12px; color: #cbd5e1; margin-top: 8px; margin-bottom: 4px; }}
-  select, input[type="file"], input[type="range"], button {{ width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #f8fafc; font-size: 13px; }}
-  button {{ background: #0284c7; border-color: #0284c7; font-weight: 600; cursor: pointer; margin-top: 10px; }}
-  button:hover {{ background: #0369a1; }}
-  button.secondary {{ background: #334155; border-color: #475569; }}
-  .row {{ display: flex; gap: 8px; align-items: center; margin-top: 8px; }}
-  .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }}
-  .stat-box {{ background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px; text-align: center; }}
-  .stat-val {{ font-size: 18px; font-weight: 700; color: #38bdf8; }}
-  .stat-lbl {{ font-size: 11px; color: #94a3b8; }}
-  .preview-wrap {{ text-align: center; background: #0b1120; border-radius: 8px; padding: 8px; border: 1px solid #334155; min-height: 280px; display: flex; align-items: center; justify-content: center; }}
-  .preview-wrap img {{ max-width: 100%; max-height: 460px; border-radius: 4px; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }}
-  th, td {{ border-bottom: 1px solid #334155; padding: 6px 8px; text-align: left; }}
-  th {{ color: #94a3b8; }}
-  .recipe-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }}
-  .recipe-card {{ background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-size: 12px; }}
-  .recipe-card h3 {{ margin: 0 0 6px 0; font-size: 13px; color: #38bdf8; }}
-  video {{ width: 100%; border-radius: 6px; margin-top: 8px; display: none; background: #000; }}
-</style>
-</head>
-<body>
-<header>
-  <h1>Stock-to-Stove | Pantry Vision Application</h1>
-  <span>Model cached once in server memory (YOLOv8n / Gemini Vision / ORB / SIFT)</span>
-</header>
-<div class="container">
-  <div class="card">
-    <h2>1. Input & Detector Settings</h2>
-    <label>Detector Mode</label>
-    <select id="mode">
-      <option value="yolov8" selected>YOLOv8n Fine-Tuned (Main)</option>
-      <option value="hybrid_gemini">Hybrid YOLOv8n + Gemini Vision</option>
-      <option value="gemini_vision">Gemini Vision (Cloud / Offline Fallback)</option>
-      <option value="orb_baseline">ORB + RANSAC (Baseline)</option>
-      <option value="sift_baseline">SIFT + RANSAC (Baseline)</option>
-    </select>
-    <label>Confidence Threshold: <span id="confVal">0.45</span></label>
-    <input type="range" id="conf" min="0.20" max="0.85" step="0.05" value="0.45" oninput="document.getElementById('confVal').innerText=this.value">
-    <div class="row">
-      <input type="checkbox" id="clahe" checked style="width:auto;">
-      <label for="clahe" style="margin:0;">Luminance-Gated Low-Light CLAHE (&lt;100 lux)</label>
-    </div>
-
-    <label style="margin-top:14px;">Upload Pantry/Fridge Image</label>
-    <input type="file" id="imageFile" accept="image/*">
-    <button onclick="runImageUpload()">Detect Uploaded Image</button>
-
-    <label style="margin-top:14px;">Or Select Built-In Sample</label>
-    <select id="sampleSelect">{options_html}</select>
-    <button class="secondary" onclick="runSample()">Detect Sample Image</button>
-
-    <label style="margin-top:14px;">Upload Video Clip (.mp4)</label>
-    <input type="file" id="videoFile" accept="video/*">
-    <button class="secondary" onclick="runVideoUpload()">Analyze Video Clip</button>
-
-    <label style="margin-top:14px;">Live Webcam Snapshot</label>
-    <div class="row">
-      <button class="secondary" onclick="toggleWebcam()">Start/Stop Cam</button>
-      <button onclick="captureWebcam()">Capture & Detect</button>
-    </div>
-    <video id="camVideo" autoplay playsinline></video>
-    <canvas id="camCanvas" style="display:none;"></canvas>
-  </div>
-
-  <div>
-    <div class="stats">
-      <div class="stat-box"><div class="stat-val" id="statCount">0</div><div class="stat-lbl">Items Detected</div></div>
-      <div class="stat-box"><div class="stat-val" id="statMs">-- ms</div><div class="stat-lbl">Processing Time</div></div>
-      <div class="stat-box"><div class="stat-val" id="statFps">-- FPS</div><div class="stat-lbl">Throughput</div></div>
-      <div class="stat-box"><div class="stat-val" id="statMode">yolov8</div><div class="stat-lbl">Active Detector</div></div>
-    </div>
-
-    <div class="card">
-      <h2>2. Annotated Detection Overlay</h2>
-      <div class="preview-wrap"><img id="resultImg" alt="Detection overlay preview will appear here"></div>
-    </div>
-
-    <div class="card" style="margin-top:14px;">
-      <h2>3. Detections, Confidence & Counts</h2>
-      <div id="countsSummary" style="font-size:13px; color:#cbd5e1; margin-bottom:6px;">No scan run yet.</div>
-      <table>
-        <thead><tr><th>#</th><th>Class ID</th><th>Display Name</th><th>Confidence</th><th>Normalized Box [x1, y1, x2, y2]</th></tr></thead>
-        <tbody id="detTable"></tbody>
-      </table>
-    </div>
-
-    <div class="card" style="margin-top:14px;">
-      <h2>4. Zero-Waste Recipe Suggestions</h2>
-      <div class="recipe-grid" id="recipeGrid"></div>
-    </div>
-  </div>
-</div>
-
-<script>
-let camStream = null;
-async function renderDetectionResponse(data) {{
-  if (data.error) {{ alert(data.error); return; }}
-  document.getElementById('statCount').innerText = data.total_count ?? 0;
-  document.getElementById('statMs').innerText = (data.inference_ms ?? 0) + ' ms';
-  document.getElementById('statFps').innerText = (data.fps ?? 0) + ' FPS';
-  document.getElementById('statMode').innerText = data.detector_mode || '--';
-  if (data.annotated_jpeg_b64) {{
-    document.getElementById('resultImg').src = 'data:image/jpeg;base64,' + data.annotated_jpeg_b64;
-  }}
-  const counts = data.counts_by_class || {{}};
-  const countStr = Object.entries(counts).map(([k, v]) => `${{k}}: ${{v}}`).join(' | ') || 'None';
-  document.getElementById('countsSummary').innerText = 'Counts by class: ' + countStr;
-
-  const tbody = document.getElementById('detTable');
-  tbody.innerHTML = '';
-  (data.detections || []).forEach((d, idx) => {{
-    const tr = document.createElement('tr');
-    const boxStr = (d.bbox_norm || []).map(v => Number(v).toFixed(3)).join(', ');
-    tr.innerHTML = `<td>${{idx + 1}}</td><td>${{d.class_id}}</td><td>${{d.display_name}}</td><td>${{Number(d.confidence).toFixed(2)}}</td><td>[${{boxStr}}]</td>`;
-    tbody.appendChild(tr);
-  }});
-
-  const rGrid = document.getElementById('recipeGrid');
-  rGrid.innerHTML = '';
-  (data.recipes || []).forEach(r => {{
-    const div = document.createElement('div');
-    div.className = 'recipe-card';
-    const stepsHtml = (r.steps || []).slice(0, 3).map(s => `<li>${{s}}</li>`).join('');
-    div.innerHTML = `<h3>${{r.title}}</h3><div>Prep: ${{r.prep_time_mins}} mins</div><ol style="padding-left:16px;margin:6px 0;">${{stepsHtml}}</ol>`;
-    rGrid.appendChild(div);
-  }});
-}}
-
-async function runImageUpload() {{
-  const fileInput = document.getElementById('imageFile');
-  if (!fileInput.files.length) {{ alert('Select an image file first.'); return; }}
-  const fd = new FormData();
-  fd.append('file', fileInput.files[0]);
-  fd.append('detector_mode', document.getElementById('mode').value);
-  fd.append('conf_threshold', document.getElementById('conf').value);
-  fd.append('enable_clahe', document.getElementById('clahe').checked ? 'true' : 'false');
-  const res = await fetch('/api/v1/ui/detect', {{ method: 'POST', body: fd }});
-  await renderDetectionResponse(await res.json());
-}}
-
-async function runSample() {{
-  const payload = {{
-    sample_name: document.getElementById('sampleSelect').value,
-    detector_mode: document.getElementById('mode').value,
-    conf_threshold: parseFloat(document.getElementById('conf').value),
-    enable_clahe: document.getElementById('clahe').checked
-  }};
-  const res = await fetch('/api/v1/ui/detect', {{
-    method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify(payload)
-  }});
-  await renderDetectionResponse(await res.json());
-}}
-
-async function runVideoUpload() {{
-  const fileInput = document.getElementById('videoFile');
-  if (!fileInput.files.length) {{ alert('Select a video file first.'); return; }}
-  const fd = new FormData();
-  fd.append('file', fileInput.files[0]);
-  fd.append('detector_mode', document.getElementById('mode').value);
-  fd.append('conf_threshold', document.getElementById('conf').value);
-  fd.append('enable_clahe', document.getElementById('clahe').checked ? 'true' : 'false');
-  const res = await fetch('/api/v1/scan/video', {{ method: 'POST', body: fd }});
-  const data = await res.json();
-  if (data.error) {{ alert(data.error); return; }}
-  const kf = (data.keyframes && data.keyframes.length) ? data.keyframes[0] : null;
-  const inv = data.confirmed_inventory || [];
-  const counts = {{}};
-  let total = 0;
-  inv.forEach(item => {{ counts[item.class_id] = item.count; total += item.count; }});
-  await renderDetectionResponse({{
-    detector_mode: data.detector_mode,
-    inference_ms: data.frame_summaries?.[0]?.inference_ms ?? 0,
-    fps: data.frame_summaries?.[0]?.inference_ms ? (1000.0 / data.frame_summaries[0].inference_ms).toFixed(1) : 0,
-    total_count: total,
-    counts_by_class: counts,
-    detections: data.frame_summaries?.[0]?.detections ?? [],
-    annotated_jpeg_b64: kf ? kf.annotated_jpeg_b64 : null,
-    recipes: []
-  }});
-}}
-
-async function toggleWebcam() {{
-  const vid = document.getElementById('camVideo');
-  if (camStream) {{
-    camStream.getTracks().forEach(t => t.stop());
-    camStream = null;
-    vid.style.display = 'none';
-    return;
-  }}
-  camStream = await navigator.mediaDevices.getUserMedia({{ video: true }});
-  vid.srcObject = camStream;
-  vid.style.display = 'block';
-}}
-
-async function captureWebcam() {{
-  const vid = document.getElementById('camVideo');
-  if (!camStream || !vid.videoWidth) {{ alert('Start webcam first.'); return; }}
-  const canvas = document.getElementById('camCanvas');
-  canvas.width = vid.videoWidth;
-  canvas.height = vid.videoHeight;
-  canvas.getContext('2d').drawImage(vid, 0, 0);
-  const b64 = canvas.toDataURL('image/jpeg', 0.88);
-  const res = await fetch('/api/v1/ui/detect', {{
-    method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{
-      image_b64: b64,
-      detector_mode: document.getElementById('mode').value,
-      conf_threshold: parseFloat(document.getElementById('conf').value),
-      enable_clahe: document.getElementById('clahe').checked
-    }})
-  }});
-  await renderDetectionResponse(await res.json());
-}}
-
-window.addEventListener('DOMContentLoaded', runSample);
-</script>
-</body>
-</html>"""
-    return HTMLResponse(content=html)
-
-
-async def handle_root(request: Request):
+def serve_frontend_index():
     index_path = os.path.join(FRONTEND_DIST_DIR, "index.html")
     if os.path.isfile(index_path):
         return FileResponse(index_path)
-    return await handle_web_ui(request)
+    return JSONResponse(
+        {"error": "Frontend build not found. Run npm run build in frontend/."},
+        status_code=503,
+    )
+
+
+async def handle_root(request: Request):
+    return serve_frontend_index()
+
+
+async def handle_manifest(request: Request):
+    manifest_path = os.path.join(FRONTEND_DIST_DIR, "manifest.webmanifest")
+    if os.path.isfile(manifest_path):
+        return FileResponse(manifest_path, media_type="application/manifest+json")
+    return JSONResponse({"error": "manifest.webmanifest not found."}, status_code=404)
+
+
+async def handle_favicon(request: Request):
+    favicon_path = os.path.join(FRONTEND_DIST_DIR, "favicon.png")
+    if os.path.isfile(favicon_path):
+        return FileResponse(favicon_path, media_type="image/png")
+    return JSONResponse({"error": "favicon.png not found."}, status_code=404)
+
+
+async def handle_spa_fallback(full_path: str):
+    normalized_rel = str(full_path or "").lstrip("/")
+    if (
+        normalized_rel == "api"
+        or normalized_rel.startswith("api/")
+        or normalized_rel == "ws"
+        or normalized_rel.startswith("ws/")
+    ):
+        return JSONResponse({"error": "Not found."}, status_code=404)
+
+    dist_root = os.path.realpath(FRONTEND_DIST_DIR)
+    if normalized_rel and not os.path.isabs(normalized_rel):
+        candidate_path = os.path.realpath(os.path.join(dist_root, normalized_rel))
+        try:
+            common = os.path.commonpath([dist_root, candidate_path])
+        except ValueError:
+            common = ""
+        if common == dist_root and candidate_path != dist_root and os.path.isfile(candidate_path):
+            if candidate_path.endswith(".webmanifest"):
+                return FileResponse(candidate_path, media_type="application/manifest+json")
+            return FileResponse(candidate_path)
+
+    return serve_frontend_index()
 
 
 def create_app():
@@ -1164,6 +1029,8 @@ def create_app():
         allow_headers=["*"],
     )
     application.add_api_route("/", handle_root, methods=["GET"])
+    application.add_api_route("/manifest.webmanifest", handle_manifest, methods=["GET"])
+    application.add_api_route("/favicon.png", handle_favicon, methods=["GET"])
     application.add_api_route("/api/v1/ui/detect", handle_ui_detect, methods=["POST"])
     application.add_api_route("/api/v1/health", handle_health, methods=["GET"])
     application.add_api_route("/api/v1/scan/image", handle_scan_image, methods=["POST"])
@@ -1175,7 +1042,10 @@ def create_app():
     application.add_api_route("/api/v1/session/items/{class_id}", handle_session_item_delete_param, methods=["DELETE"])
     application.add_api_websocket_route("/ws/scan", handle_ws_scan)
     assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
+    icons_dir = os.path.join(FRONTEND_DIST_DIR, "icons")
     application.mount("/assets", StaticFiles(directory=assets_dir, check_dir=False), name="frontend_assets")
+    application.mount("/icons", StaticFiles(directory=icons_dir, check_dir=False), name="frontend_icons")
+    application.add_api_route("/{full_path:path}", handle_spa_fallback, methods=["GET"])
     return application
 
 

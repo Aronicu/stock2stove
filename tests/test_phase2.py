@@ -14,7 +14,9 @@ from src.server.config import (
 )
 
 
-def test_task_2_1_extract_frames_and_auto_label(tmp_path):
+def test_task_2_1_extract_frames_and_auto_label(tmp_path, monkeypatch):
+    import src.training.auto_label as auto_label_mod
+    from src.server.config import GEMINI_AUTOLABEL_MODEL
     from src.training.auto_label import auto_label_directory, auto_label_image
     from src.training.extract_frames import extract_frames_from_directory
 
@@ -50,9 +52,78 @@ def test_task_2_1_extract_frames_and_auto_label(tmp_path):
         assert 0.0 <= float(item["w"]) <= 1.0
         assert 0.0 <= float(item["h"]) <= 1.0
 
+    subset_dir = tmp_path / "subset_frames"
+    subset_dir.mkdir(parents=True, exist_ok=True)
+    for idx, frame_path in enumerate(extracted_frames[:2]):
+        frame_img = cv2.imread(str(frame_path))
+        assert frame_img is not None
+        cv2.imwrite(str(subset_dir / f"frame_{idx:03d}.jpg"), frame_img)
+
+    def fake_offline_gemini(bgr_image, **kwargs):
+        return (
+            [
+                {
+                    "class_id": "pasta_noodles",
+                    "display_name": "Fallback Pasta",
+                    "confidence": 0.90,
+                    "bbox_norm": [0.1, 0.1, 0.5, 0.5],
+                }
+            ],
+            {
+                "detector_mode": "gemini_vision",
+                "backend": "yolov8_offline_fallback",
+                "live_api": False,
+                "cached": False,
+                "last_error": "offline",
+            },
+        )
+
+    monkeypatch.setattr(auto_label_mod, "run_gemini_detection", fake_offline_gemini)
+    offline_preds = auto_label_image(sample_bgr, conf_threshold=0.45, backend="gemini")
+    assert offline_preds == []
+
+    offline_auto_dir = tmp_path / "auto_labeled_offline_gem"
+    offline_summary = auto_label_directory(
+        str(subset_dir),
+        str(offline_auto_dir),
+        conf_threshold=0.45,
+        backend="gemini",
+    )
+    assert offline_summary["skipped_fallback_frames"] == 2
+    assert offline_summary["images_processed"] == 0
+    assert len(list((offline_auto_dir / "images").glob("*.*"))) == 0
+    assert len(list((offline_auto_dir / "labels").glob("*.txt"))) == 0
+
+    captured_calls = []
+
+    def fake_live_gemini(bgr_image, **kwargs):
+        captured_calls.append(dict(kwargs))
+        return (
+            [
+                {
+                    "class_id": "canned_tomato",
+                    "display_name": "San Marzano Tomatoes",
+                    "confidence": 0.92,
+                    "bbox_norm": [0.15, 0.20, 0.55, 0.70],
+                }
+            ],
+            {
+                "detector_mode": "gemini_vision",
+                "backend": GEMINI_AUTOLABEL_MODEL,
+                "live_api": True,
+                "cached": False,
+                "last_error": None,
+            },
+        )
+
+    monkeypatch.setattr(auto_label_mod, "run_gemini_detection", fake_live_gemini)
     gem_preds = auto_label_image(sample_bgr, conf_threshold=0.45, backend="gemini")
     assert isinstance(gem_preds, list)
-    assert len(gem_preds) >= 1
+    assert len(gem_preds) == 1
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["timeout_sec"] == 15.0
+    assert captured_calls[0]["model_name"] == GEMINI_AUTOLABEL_MODEL
+    assert captured_calls[0]["use_cache"] is False
     for item in gem_preds:
         assert 0 <= int(item["class_idx"]) <= 7
         assert 0.0 <= float(item["xc"]) <= 1.0
@@ -60,12 +131,15 @@ def test_task_2_1_extract_frames_and_auto_label(tmp_path):
         assert 0.0 <= float(item["w"]) <= 1.0
         assert 0.0 <= float(item["h"]) <= 1.0
 
-    subset_dir = tmp_path / "subset_frames"
-    subset_dir.mkdir(parents=True, exist_ok=True)
-    for idx, frame_path in enumerate(extracted_frames[:2]):
-        frame_img = cv2.imread(str(frame_path))
-        assert frame_img is not None
-        cv2.imwrite(str(subset_dir / f"frame_{idx:03d}.jpg"), frame_img)
+    live_auto_dir = tmp_path / "auto_labeled_live_gem"
+    live_summary = auto_label_directory(
+        str(subset_dir),
+        str(live_auto_dir),
+        conf_threshold=0.45,
+        backend="gemini",
+    )
+    assert live_summary["skipped_fallback_frames"] == 0
+    assert live_summary["images_processed"] == 2
 
     summary = auto_label_directory(str(subset_dir), str(auto_dir), conf_threshold=0.45)
     assert summary is not None

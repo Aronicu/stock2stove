@@ -1,7 +1,6 @@
 param(
     [string]$BindHost = "0.0.0.0",
     [int]$Port = 8000,
-    [switch]$SkipAdbReverse,
     [switch]$BuildFrontend,
     [switch]$SkipFrontend,
     [switch]$Dev
@@ -81,18 +80,6 @@ if ((-not $SkipFrontend) -and (Test-Path $FrontendPkg)) {
                     Pop-Location
                 }
             }
-        }
-    }
-}
-
-if (-not $SkipAdbReverse) {
-    $AdbPath = Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
-    if (Test-Path $AdbPath) {
-        try {
-            & $AdbPath reverse "tcp:$Port" "tcp:$Port" | Out-Null
-            Write-Host "[ADB] USB reverse tunnel active on tcp:$Port"
-        } catch {
-            Write-Host "[ADB] No USB Android device detected; continuing with LAN/localhost mode."
         }
     }
 }

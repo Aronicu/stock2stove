@@ -1,0 +1,29 @@
+{
+  "name": "Stock-to-Stove",
+  "short_name": "Stock2Stove",
+  "description": "Zero-Waste Pantry Vision & Calorie-Aware Chef",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1b5e3f",
+  "background_color": "#f7f5f0",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

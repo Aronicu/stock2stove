@@ -58,9 +58,9 @@ export const UNIFIED_FOOD_CLASSES = [
 ]
 
 export const DETECTOR_MODES = [
-  { value: 'yolov8', label: 'YOLOv8n Fine-Tuned' },
-  { value: 'hybrid_gemini', label: 'Hybrid YOLOv8n + Gemini' },
   { value: 'gemini_vision', label: 'Gemini Vision' },
+  { value: 'hybrid_gemini', label: 'Hybrid YOLOv8n + Gemini' },
+  { value: 'yolov8', label: 'YOLOv8n Fine-Tuned' },
   { value: 'orb_baseline', label: 'ORB + RANSAC' },
   { value: 'sift_baseline', label: 'SIFT + RANSAC' },
 ]

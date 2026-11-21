@@ -91,7 +91,13 @@ def map_detections_to_original_frame(raw_dets, meta):
     return mapped
 
 
-def infer(preprocessed, mode="yolov8", conf_threshold=0.45, iou_threshold=NMS_IOU_THRESHOLD):
+def infer(
+    preprocessed,
+    mode="yolov8",
+    conf_threshold=0.45,
+    iou_threshold=NMS_IOU_THRESHOLD,
+    excluded_classes=None,
+):
     resolved_mode = validate_detector_mode(mode)
     letterboxed = preprocessed["letterboxed_bgr"]
     meta = preprocessed["meta"]
@@ -107,12 +113,14 @@ def infer(preprocessed, mode="yolov8", conf_threshold=0.45, iou_threshold=NMS_IO
             letterboxed,
             conf_threshold=float(conf_threshold),
             iou_threshold=float(iou_threshold),
+            excluded_classes=excluded_classes,
         )
     elif resolved_mode == "hybrid_gemini":
         raw_dets, infer_meta = run_hybrid_gemini_detection(
             letterboxed,
             conf_threshold=float(conf_threshold),
             iou_threshold=float(iou_threshold),
+            excluded_classes=excluded_classes,
         )
     else:
         raw_dets, infer_meta = run_yolo_detection(
@@ -297,6 +305,7 @@ def run_single_frame(
     iou_threshold=NMS_IOU_THRESHOLD,
     tracker_state=None,
     source_name="frame",
+    excluded_classes=None,
 ):
     t_start = time.perf_counter()
     prep = preprocess(frame, enable_clahe=enable_clahe, target_size=TARGET_IMG_SIZE)
@@ -305,12 +314,14 @@ def run_single_frame(
         mode=mode,
         conf_threshold=conf_threshold,
         iou_threshold=iou_threshold,
+        excluded_classes=excluded_classes,
     )
     post = postprocess(
         raw_dets,
         tracker_state=tracker_state,
         conf_threshold=conf_threshold,
         iou_threshold=iou_threshold,
+        excluded_classes=excluded_classes,
     )
     elapsed_ms = (time.perf_counter() - t_start) * 1000.0
     rendered = render(

@@ -126,13 +126,21 @@ export async function scanVideoClip({
 
 export async function generateRecipesFromBasket(items, timeoutSec = 8.0) {
   const payloadItems = items.map(function mapBasketItem(item) {
-    return {
+    const count = Math.max(1, Number(item.count || 1))
+    const mapped = {
       class_id: item.class_id,
       display_name: item.display_name,
-      count: Math.max(1, Number(item.count || 1)),
+      count,
       storage_zone: String(item.storage_zone || 'pantry').toLowerCase(),
       crop_jpeg_b64: item.crop_jpeg_b64 || null,
     }
+    if (Number(item.calories_per_unit) > 0) {
+      mapped.calories_per_unit = Math.round(Number(item.calories_per_unit))
+    }
+    if (Number(item.estimated_calories) > 0) {
+      mapped.estimated_calories = Math.round(Number(item.estimated_calories))
+    }
+    return mapped
   })
   const res = await fetch('/api/v1/recipes/generate', {
     method: 'POST',

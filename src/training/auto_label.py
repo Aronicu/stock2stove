@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import shutil
 import sys
@@ -15,6 +16,7 @@ from src.cv.yolo_detector import check_ultralytics_available, run_yolo_detection
 from src.server.config import GEMINI_AUTOLABEL_MODEL, UNIFIED_CLASSES, normalize_class_id
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
+logger = logging.getLogger(__name__)
 
 
 def class_id_to_index(class_id):
@@ -55,17 +57,41 @@ def bbox_xyxy_to_yolo(bbox_norm):
     return [round(xc, 6), round(yc, 6), round(w, 6), round(h, 6)]
 
 
-def auto_label_image(bgr_image, conf_threshold=0.45, model_path=None, backend="yolo_world"):
+def auto_label_image_with_meta(
+    bgr_image,
+    conf_threshold=0.45,
+    model_path=None,
+    backend="yolo_world",
+    gemini_timeout_sec=15.0,
+):
+    backend_name = str(backend).strip().lower()
     if bgr_image is None or bgr_image.size == 0:
-        return []
+        return [], {
+            "backend": backend_name,
+            "live_api": False,
+            "skipped_fallback": False,
+        }
 
-    if str(backend).strip().lower() == "gemini":
-        detections, _ = run_gemini_detection(
+    if backend_name == "gemini":
+        detections, det_meta = run_gemini_detection(
             bgr_image,
             conf_threshold=float(conf_threshold),
             model_name=GEMINI_AUTOLABEL_MODEL,
+            timeout_sec=float(gemini_timeout_sec),
             use_cache=False,
         )
+        meta = dict(det_meta) if isinstance(det_meta, dict) else {}
+        is_live = bool(meta.get("live_api", False))
+        meta["live_api"] = is_live
+        if not is_live:
+            meta["skipped_fallback"] = True
+            logger.warning(
+                "Skipping Gemini auto-label frame: live_api=False (backend=%s, last_error=%s)",
+                meta.get("backend"),
+                meta.get("last_error"),
+            )
+            return [], meta
+        meta["skipped_fallback"] = False
     else:
         if model_path and os.path.exists(str(model_path)) and check_ultralytics_available():
             resolved_model = os.path.abspath(str(model_path))
@@ -82,11 +108,13 @@ def auto_label_image(bgr_image, conf_threshold=0.45, model_path=None, backend="y
                 except Exception:
                     pass
 
-        detections, _ = run_yolo_detection(
+        detections, det_meta = run_yolo_detection(
             bgr_image,
             mode="yolo_world",
             conf_threshold=float(conf_threshold),
         )
+        meta = dict(det_meta) if isinstance(det_meta, dict) else {}
+        meta["skipped_fallback"] = False
 
     annotations = []
     for det in detections:
@@ -106,10 +134,34 @@ def auto_label_image(bgr_image, conf_threshold=0.45, model_path=None, backend="y
             "w": float(yolo_box[2]),
             "h": float(yolo_box[3]),
         })
+    return annotations, meta
+
+
+def auto_label_image(
+    bgr_image,
+    conf_threshold=0.45,
+    model_path=None,
+    backend="yolo_world",
+    gemini_timeout_sec=15.0,
+):
+    annotations, _ = auto_label_image_with_meta(
+        bgr_image,
+        conf_threshold=conf_threshold,
+        model_path=model_path,
+        backend=backend,
+        gemini_timeout_sec=gemini_timeout_sec,
+    )
     return annotations
 
 
-def auto_label_directory(input_dir, output_dir, conf_threshold=0.45, model_path=None, backend="yolo_world"):
+def auto_label_directory(
+    input_dir,
+    output_dir,
+    conf_threshold=0.45,
+    model_path=None,
+    backend="yolo_world",
+    gemini_timeout_sec=15.0,
+):
     input_path = str(input_dir)
     output_path = str(output_dir)
     if not os.path.isdir(input_path):
@@ -136,18 +188,23 @@ def auto_label_directory(input_dir, output_dir, conf_threshold=0.45, model_path=
 
     images_processed = 0
     images_with_labels = 0
+    skipped_fallback_frames = 0
     total_detections = 0
 
     for img_path in image_files:
         bgr = cv2.imread(img_path)
         if bgr is None or bgr.size == 0:
             continue
-        annotations = auto_label_image(
+        annotations, ann_meta = auto_label_image_with_meta(
             bgr,
             conf_threshold=conf_threshold,
             model_path=model_path,
             backend=backend,
+            gemini_timeout_sec=gemini_timeout_sec,
         )
+        if ann_meta.get("skipped_fallback"):
+            skipped_fallback_frames += 1
+            continue
 
         base_name = os.path.basename(img_path)
         stem = os.path.splitext(base_name)[0]
@@ -188,6 +245,7 @@ def auto_label_directory(input_dir, output_dir, conf_threshold=0.45, model_path=
         "output_dir": output_path,
         "images_processed": images_processed,
         "images_with_labels": images_with_labels,
+        "skipped_fallback_frames": skipped_fallback_frames,
         "total_detections": total_detections,
         "class_counts": class_counts,
         "data_yaml": yaml_path,
@@ -201,6 +259,7 @@ def main():
     parser.add_argument("--conf", type=float, default=0.45)
     parser.add_argument("--model", type=str, default="models/yolov8s-worldv2.pt")
     parser.add_argument("--backend", type=str, choices=["yolo_world", "gemini"], default="yolo_world")
+    parser.add_argument("--gemini-timeout", type=float, default=15.0)
     args = parser.parse_args()
 
     summary = auto_label_directory(
@@ -209,11 +268,13 @@ def main():
         conf_threshold=args.conf,
         model_path=args.model,
         backend=args.backend,
+        gemini_timeout_sec=args.gemini_timeout,
     )
     print(f"Input directory: {summary['input_dir']}")
     print(f"Output directory: {summary['output_dir']}")
     print(f"Images processed: {summary['images_processed']}")
     print(f"Images with labels: {summary['images_with_labels']}")
+    print(f"Skipped fallback frames: {summary['skipped_fallback_frames']}")
     print(f"Total detections: {summary['total_detections']}")
     print(f"Class counts: {summary['class_counts']}")
     print(f"Data YAML: {summary['data_yaml']}")

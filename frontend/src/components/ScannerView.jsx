@@ -7,6 +7,7 @@ import {
   Layers,
   Pause,
   Play,
+  RefreshCw,
   RotateCcw,
   ShoppingBasket,
   Sparkles,
@@ -128,6 +129,8 @@ export default function ScannerView({
   onToggleClahe,
   confThreshold,
   onChangeConfThreshold,
+  facingMode = 'environment',
+  onChangeFacingMode,
   excludedClasses,
   basketItems,
   onScanUpdate,
@@ -143,6 +146,7 @@ export default function ScannerView({
   const [selectedImageFile, setSelectedImageFile] = useState(null)
   const [selectedVideoFile, setSelectedVideoFile] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [wsInFlight, setWsInFlight] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [previewData, setPreviewData] = useState(null)
   const [selectedKeyframeIdx, setSelectedKeyframeIdx] = useState(0)
@@ -150,8 +154,15 @@ export default function ScannerView({
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraPaused, setCameraPaused] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
+  const [streamTick, setStreamTick] = useState(0)
   const [videoAspect, setVideoAspect] = useState('4 / 3')
   const [liveDetections, setLiveDetections] = useState([])
+  const [backendStatus, setBackendStatus] = useState({
+    live_api: null,
+    detector_backend: '',
+    cached: false,
+    last_error: '',
+  })
   const [liveMetrics, setLiveMetrics] = useState({
     fps: 0,
     inference_ms: 0,
@@ -173,12 +184,14 @@ export default function ScannerView({
   const lastSentAtRef = useRef(0)
   const frameCounterRef = useRef(0)
   const loopTimerRef = useRef(null)
+  const unmountedRef = useRef(false)
+  const cameraStartSeqRef = useRef(0)
   const excludedRef = useRef(excludedClasses)
-  const configRef = useRef({ detectorMode, enableClahe, confThreshold, cameraPaused, sessionId })
+  const configRef = useRef({ detectorMode, enableClahe, confThreshold, facingMode, cameraPaused, sessionId })
 
   useEffect(function syncConfigRefs() {
     excludedRef.current = excludedClasses
-    configRef.current = { detectorMode, enableClahe, confThreshold, cameraPaused, sessionId }
+    configRef.current = { detectorMode, enableClahe, confThreshold, facingMode, cameraPaused, sessionId }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         frame_id: frameCounterRef.current,
@@ -190,7 +203,27 @@ export default function ScannerView({
         reset_session: false,
       }))
     }
-  }, [detectorMode, enableClahe, confThreshold, cameraPaused, sessionId, excludedClasses])
+  }, [detectorMode, enableClahe, confThreshold, facingMode, cameraPaused, sessionId, excludedClasses])
+
+  useEffect(function attachStreamEffect() {
+    const video = videoRef.current
+    const stream = streamRef.current
+    if (!cameraActive || !video || !stream) {
+      return
+    }
+    if (video.srcObject !== stream) {
+      video.srcObject = stream
+    }
+    video.onloadedmetadata = function handleMetaLoaded() {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        setVideoAspect(`${video.videoWidth} / ${video.videoHeight}`)
+      }
+    }
+    const playPromise = video.play()
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(function ignorePlayErr() {})
+    }
+  }, [cameraActive, streamTick])
 
   useEffect(function redrawLiveOverlay() {
     const canvas = overlayCanvasRef.current
@@ -212,15 +245,17 @@ export default function ScannerView({
   }, [liveDetections, excludedClasses])
 
   function stopCameraAndSocket() {
+    cameraStartSeqRef.current += 1
     if (loopTimerRef.current) {
       window.clearInterval(loopTimerRef.current)
       loopTimerRef.current = null
     }
-    if (wsRef.current) {
+    const oldSocket = wsRef.current
+    wsRef.current = null
+    if (oldSocket) {
       try {
-        wsRef.current.close(1000, 'Camera stopped')
+        oldSocket.close(1000, 'Camera stopped')
       } catch {}
-      wsRef.current = null
     }
     if (onRegisterWsSend) {
       onRegisterWsSend(null)
@@ -236,6 +271,7 @@ export default function ScannerView({
       videoRef.current.srcObject = null
     }
     inFlightRef.current = false
+    setWsInFlight(false)
     setWsConnected(false)
     setCameraActive(false)
     setCameraPaused(false)
@@ -243,7 +279,10 @@ export default function ScannerView({
   }
 
   useEffect(function cleanupOnUnmount() {
+    unmountedRef.current = false
     return function releaseResources() {
+      unmountedRef.current = true
+      cameraStartSeqRef.current += 1
       stopCameraAndSocket()
     }
   }, [])
@@ -257,6 +296,12 @@ export default function ScannerView({
     wsRef.current = socket
 
     socket.onopen = function handleWsOpen() {
+      if (wsRef.current !== socket) {
+        try {
+          socket.close(1000, 'Superseded')
+        } catch {}
+        return
+      }
       setWsConnected(true)
       setErrorMessage('')
       if (onLogEvent) {
@@ -289,7 +334,11 @@ export default function ScannerView({
     }
 
     socket.onmessage = function handleWsMessage(event) {
+      if (wsRef.current !== socket) {
+        return
+      }
       inFlightRef.current = false
+      setWsInFlight(false)
       let payload = null
       try {
         payload = JSON.parse(event.data)
@@ -330,6 +379,12 @@ export default function ScannerView({
         inference_ms: Number(payload.inference_ms || 0),
         diagnostics: payload.diagnostics || {},
       })
+      setBackendStatus({
+        live_api: typeof payload.live_api === 'boolean' ? payload.live_api : null,
+        detector_backend: payload.detector_backend ? String(payload.detector_backend) : '',
+        cached: Boolean(payload.cached),
+        last_error: payload.last_error ? String(payload.last_error) : '',
+      })
 
       const inv = Array.isArray(payload.confirmed_inventory) ? payload.confirmed_inventory : []
       if (inv.length > 0 || (payload.excluded_classes && payload.excluded_classes.length > 0)) {
@@ -349,7 +404,11 @@ export default function ScannerView({
     }
 
     socket.onerror = function handleWsError() {
+      if (wsRef.current !== socket) {
+        return
+      }
       inFlightRef.current = false
+      setWsInFlight(false)
       setWsConnected(false)
       setErrorMessage('WebSocket connection error. Verify FastAPI server is running on port 8000.')
       if (onLogEvent) {
@@ -358,7 +417,11 @@ export default function ScannerView({
     }
 
     socket.onclose = function handleWsClose() {
+      if (wsRef.current !== socket) {
+        return
+      }
       inFlightRef.current = false
+      setWsInFlight(false)
       setWsConnected(false)
       if (onRegisterWsSend) {
         onRegisterWsSend(null)
@@ -366,39 +429,48 @@ export default function ScannerView({
     }
   }
 
-  async function startLiveCamera() {
+  async function startLiveCamera(overrideFacingMode) {
     setErrorMessage('')
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setErrorMessage('Webcam capture requires a modern browser with getUserMedia support.')
       return
     }
+    const rawFacing = typeof overrideFacingMode === 'string' ? overrideFacingMode : facingMode
+    const targetFacing = rawFacing === 'user' ? 'user' : 'environment'
+    const startSeq = cameraStartSeqRef.current + 1
+    cameraStartSeqRef.current = startSeq
+
     try {
       let mediaStream = null
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+          video: { facingMode: { ideal: targetFacing }, width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,
         })
       } catch {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: targetFacing, width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false,
+          })
+        } catch {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        }
       }
+
+      if (unmountedRef.current || cameraStartSeqRef.current !== startSeq) {
+        const unusedTracks = mediaStream.getTracks()
+        for (let i = 0; i < unusedTracks.length; i += 1) {
+          unusedTracks[i].stop()
+        }
+        return
+      }
+
       streamRef.current = mediaStream
+      setStreamTick(function bumpTick(t) { return t + 1 })
       setCameraActive(true)
       setCameraPaused(false)
       openScanWebSocket()
-
-      window.setTimeout(function attachStreamToVideo() {
-        const video = videoRef.current
-        if (!video) {
-          return
-        }
-        video.srcObject = mediaStream
-        video.onloadedmetadata = function handleMetaLoaded() {
-          if (video.videoWidth > 0 && video.videoHeight > 0) {
-            setVideoAspect(`${video.videoWidth} / ${video.videoHeight}`)
-          }
-        }
-      }, 40)
 
       if (loopTimerRef.current) {
         window.clearInterval(loopTimerRef.current)
@@ -415,8 +487,8 @@ export default function ScannerView({
         }
         const now = performance.now()
         const isGemini = cfg.detectorMode === 'gemini_vision' || cfg.detectorMode === 'hybrid_gemini'
-        const maxWaitMs = isGemini ? 4500 : 1200
-        const minIntervalMs = isGemini ? 900 : 180
+        const maxWaitMs = isGemini ? 12000 : 1200
+        const minIntervalMs = isGemini ? 1500 : 180
         if (inFlightRef.current && now - lastSentAtRef.current < maxWaitMs) {
           return
         }
@@ -442,6 +514,7 @@ export default function ScannerView({
 
         frameCounterRef.current += 1
         inFlightRef.current = true
+        setWsInFlight(true)
         lastSentAtRef.current = now
 
         socket.send(JSON.stringify({
@@ -457,6 +530,20 @@ export default function ScannerView({
     } catch (err) {
       setErrorMessage(err.message || 'Unable to access webcam device.')
       stopCameraAndSocket()
+    }
+  }
+
+  async function handleSelectFacingMode(nextFacing) {
+    const normalized = nextFacing === 'user' ? 'user' : 'environment'
+    if (normalized === facingMode) {
+      return
+    }
+    if (onChangeFacingMode) {
+      onChangeFacingMode(normalized)
+    }
+    if (cameraActive) {
+      stopCameraAndSocket()
+      await startLiveCamera(normalized)
     }
   }
 
@@ -511,6 +598,12 @@ export default function ScannerView({
         ? [{ frame_id: 1, annotated_jpeg_b64: result.annotated_jpeg_b64, detection_count: filteredDets.length }]
         : [],
       total_estimated_calories: Number(result.total_estimated_calories || 0),
+    })
+    setBackendStatus({
+      live_api: typeof result.live_api === 'boolean' ? result.live_api : null,
+      detector_backend: result.detector_backend ? String(result.detector_backend) : '',
+      cached: Boolean(result.cached),
+      last_error: result.last_error ? String(result.last_error) : '',
     })
     setSelectedKeyframeIdx(0)
     onScanUpdate({
@@ -640,6 +733,12 @@ export default function ScannerView({
   async function handleResetClick() {
     setPreviewData(null)
     setLiveDetections([])
+    setBackendStatus({
+      live_api: null,
+      detector_backend: '',
+      cached: false,
+      last_error: '',
+    })
     frameCounterRef.current = 0
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
@@ -704,6 +803,10 @@ export default function ScannerView({
     ? previewData.keyframes[Math.min(selectedKeyframeIdx, previewData.keyframes.length - 1)]
     : null
 
+  const isGeminiMode = detectorMode === 'gemini_vision' || detectorMode === 'hybrid_gemini'
+  const isGeminiAnalyzing = isGeminiMode && (wsInFlight || isProcessing)
+  const hasBackendStatus = backendStatus.live_api !== null || Boolean(backendStatus.detector_backend)
+
   return (
     <div className="scanner-layout">
       <aside className="card controls-panel">
@@ -757,6 +860,24 @@ export default function ScannerView({
 
         <div className="control-group">
           <label htmlFor="detector-mode-select">Detector Mode</label>
+          <div className="detector-chip-grid" role="group" aria-label="Quick detector mode switcher">
+            {DETECTOR_MODES.map(function renderDetectorChip(m) {
+              const isSelected = detectorMode === m.value
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  className={`detector-chip ${isSelected ? 'detector-chip-active' : ''}`}
+                  aria-pressed={isSelected}
+                  data-detector-mode={m.value}
+                  onClick={function selectDetectorChip() { onChangeDetectorMode(m.value) }}
+                  title={`${m.label} (${m.value})`}
+                >
+                  {m.label}
+                </button>
+              )
+            })}
+          </div>
           <select
             id="detector-mode-select"
             value={detectorMode}
@@ -804,12 +925,30 @@ export default function ScannerView({
             <p className="helper-text">
               Streams webcam frames over WebSocket <code>/ws/scan</code> with real-time temporal bounding boxes.
             </p>
+            <div className="facing-switch-row" role="group" aria-label="Camera lens">
+              <button
+                type="button"
+                className={`facing-chip ${facingMode === 'environment' ? 'facing-chip-active' : ''}`}
+                aria-pressed={facingMode === 'environment'}
+                onClick={function pickRearCamera() { handleSelectFacingMode('environment') }}
+              >
+                Rear Camera
+              </button>
+              <button
+                type="button"
+                className={`facing-chip ${facingMode === 'user' ? 'facing-chip-active' : ''}`}
+                aria-pressed={facingMode === 'user'}
+                onClick={function pickFrontCamera() { handleSelectFacingMode('user') }}
+              >
+                Front Camera
+              </button>
+            </div>
             <div className="action-row">
               {!cameraActive ? (
                 <button
                   type="button"
                   className="btn btn-primary btn-full"
-                  onClick={startLiveCamera}
+                  onClick={function clickStartCam() { startLiveCamera(facingMode) }}
                 >
                   <Camera size={17} />
                   <span>Start Live Camera</span>
@@ -831,6 +970,17 @@ export default function ScannerView({
                   >
                     {cameraPaused ? <Play size={16} /> : <Pause size={16} />}
                     <span>{cameraPaused ? 'Resume' : 'Pause'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={function flipCamClick() {
+                      handleSelectFacingMode(facingMode === 'environment' ? 'user' : 'environment')
+                    }}
+                    title="Switch between rear and front camera"
+                  >
+                    <RefreshCw size={16} />
+                    <span>{facingMode === 'environment' ? 'Front' : 'Rear'}</span>
                   </button>
                   <button
                     type="button"
@@ -1003,6 +1153,20 @@ export default function ScannerView({
                   {wsConnected ? (cameraPaused ? 'WS Paused' : 'WS Live') : 'WS Disconnected'}
                 </span>
               )}
+              {hasBackendStatus && (
+                <div className="api-status-group">
+                  {backendStatus.live_api !== null && (
+                    <span className={`api-status-badge ${backendStatus.live_api ? 'api-status-live' : 'api-status-fallback'}`}>
+                      {backendStatus.live_api ? 'Live API' : 'Offline Fallback'}
+                    </span>
+                  )}
+                  {backendStatus.detector_backend && (
+                    <span className="backend-model-badge mono-text">
+                      {backendStatus.detector_backend}{backendStatus.cached ? ' · cached' : ''}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <div className="legend-row">
               <span className="legend-item">
@@ -1016,8 +1180,20 @@ export default function ScannerView({
             </div>
           </div>
 
+          {backendStatus.last_error && (
+            <div className="alert-warn viewport-error-notice" role="status">
+              <strong>Gemini Notice:</strong> <span>{backendStatus.last_error}</span>
+            </div>
+          )}
+
           {inputMode === 'camera' ? (
             <div className="camera-stage-wrap">
+              {isGeminiAnalyzing && (
+                <div className="gemini-analyzing-hud" role="status">
+                  <span className="analyzing-dot" />
+                  <span>Gemini Vision analyzing...</span>
+                </div>
+              )}
               {!cameraActive ? (
                 <div className="stage-placeholder">
                   <Camera size={42} />
@@ -1042,6 +1218,12 @@ export default function ScannerView({
             </div>
           ) : (
             <div className="image-stage-wrap">
+              {isGeminiAnalyzing && (
+                <div className="gemini-analyzing-hud" role="status">
+                  <span className="analyzing-dot" />
+                  <span>Gemini Vision analyzing...</span>
+                </div>
+              )}
               {activeKeyframe && activeKeyframe.annotated_jpeg_b64 ? (
                 <>
                   <img

@@ -6,15 +6,16 @@
 
 <p align="center">
   <strong>CSST 106 — Computer Vision Final Project</strong><br/>
-  <strong>Milestone 4 — 80% Progress Check (<code>cp4-80</code>)</strong> · <strong>Team Kaggleing</strong>
+  <strong>React + Vite Web App SPA + Gemini Vision</strong> · <strong>Team Kaggleing</strong>
 </p>
 
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-black.svg" alt="Python 3.10+" /></a>
+  <a href="frontend/"><img src="https://img.shields.io/badge/Frontend-React%2019%20%2B%20Vite%20PWA-61DAFB.svg" alt="React + Vite PWA" /></a>
+  <a href="src/cv/gemini_detector.py"><img src="https://img.shields.io/badge/Vision-Gemini%20Interactions%20API-4285F4.svg" alt="Gemini Vision" /></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-REST%20%2B%20WebSocket-009688.svg" alt="FastAPI" /></a>
+  <a href="https://github.com/ultralytics/ultralytics"><img src="https://img.shields.io/badge/Fallback-YOLOv8n-lightgray.svg" alt="YOLOv8n" /></a>
   <a href="https://opencv.org/"><img src="https://img.shields.io/badge/OpenCV-4.8+-gray.svg" alt="OpenCV" /></a>
-  <a href="https://github.com/ultralytics/ultralytics"><img src="https://img.shields.io/badge/Ultralytics-YOLOv8n-lightgray.svg" alt="YOLOv8n" /></a>
-  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-Server%20%2B%20Web%20UI-009688.svg" alt="FastAPI" /></a>
-  <a href="android/"><img src="https://img.shields.io/badge/Android-CameraX%20%2B%20WebSocket-3DDC84.svg" alt="Android" /></a>
 </p>
 
 **Members:**
@@ -25,26 +26,69 @@
 ---
 
 ## 📌 Project Overview
-**Stock-to-Stove** solves the common kitchen dilemma: *"A cupboard full of food, but you don't know what to cook."* Scanning kitchen pantry and refrigerator shelves via a live smartphone camera, uploaded video, or web dashboard isolates, classifies, and tallies in-stock grocery items across dark cupboard shadows (`<100 lux`), clutter, and camera motion. Confirmed inventory counts are passed to a downstream LLM recipe generator to suggest 3 actionable, zero-waste recipes.
+**Stock-to-Stove** solves the common kitchen dilemma: *"A cupboard full of food, but you don't know what to cook."* Scanning kitchen pantry and refrigerator shelves via a mobile or desktop browser camera, uploaded photo, or video stream in the **React + Vite Web App SPA (installable PWA)** isolates, classifies, tallies, and estimates calories for in-stock grocery items across dark cupboard shadows (`<100 lux`), clutter, and camera motion. Confirmed inventory counts are passed to a **Gemini Interactions API** recipe generator to suggest 3 actionable, zero-waste recipes.
 
-- **Unified 8-Class Taxonomy:** Pantry (`pasta_noodles`, `canned_tomato`, `canned_tuna_meat`, `cereal_grains`, `coffee_condiment`) and Refrigerator (`milk_dairy`, `eggs`, `fresh_produce`).
+- **Primary Application — React + Vite PWA SPA (`frontend/`):** Mobile- and desktop-responsive Progressive Web App served directly by FastAPI from `frontend/dist/`. Features live WebRTC camera streaming (`getUserMedia` with rear/front camera toggle), photo/video upload scanning, quick detector switching (`gemini_vision` default), real-time bounding-box HUD overlays, live API vs. offline fallback status badges, `localStorage` basket persistence, system diagnostics, and interactive zero-waste recipe cards.
+- **Unified 8-Class Taxonomy:** Pantry (`pasta_noodles`, `canned_tomato`, `canned_tuna_meat`, `cereal_grains`, `coffee_condiment`) and Refrigerator (`milk_dairy`, `eggs`, `fresh_produce`), with explicit prompt/schema filtering against non-food objects and session-excluded items.
 - **Luminance-Gated Preprocessing (`src/cv/preprocess.py`):** Aspect-preserving `640x640` letterboxing (`pad=114`) with inverse gamma + LAB L-channel CLAHE triggered when mean lightness `L < 45.0`.
-- **Detectors:** Fine-tuned **YOLOv8n** (`models/best.pt`, `6.2 MB` PT / `12.19 MB` ONNX), classical **ORB / SIFT + RANSAC** baselines (`src/cv/baseline_detector.py`), plus **Gemini Vision** and **Hybrid Gemini** server modes (`src/cv/gemini_detector.py`).
-- **Temporal Confirmation (`src/cv/temporal_tracker.py`):** Class-wise NMS (`IoU=0.45`), meat-safety confidence gate (`canned_tuna_meat >= 0.76`), and a 5-frame sliding window (`K >= 3` hits).
-- **Applications:** FastAPI inference server & browser dashboard (`src/server/app.py`), native Android CameraX WebSocket app (`android/`, prebuilt `app-debug.apk`), CLI pipeline (`src/run.py`), and LLM recipe module (`src/llm_recipe.py`).
+- **Detectors:** **Gemini Vision** (`src/cv/gemini_detector.py`, default `gemini-4-hydrogen` via Google GenAI Interactions API with `thinking_level`, structured `class_id` enum, and per-item `estimated_calories`), **Hybrid Gemini** (YOLOv8n + Gemini Vision fusion), fine-tuned **YOLOv8n** (`models/best.pt`, `6.2 MB` PT / `12.19 MB` ONNX, also serving as offline fallback when `GEMINI_API_KEY` is unavailable), and classical **ORB / SIFT + RANSAC** baselines (`src/cv/baseline_detector.py`).
+- **Temporal Confirmation (`src/cv/temporal_tracker.py`):** Class-wise NMS (`IoU=0.45`), meat-safety confidence gating (`canned_tuna_meat`), and sliding-window consensus with per-item calorie aggregation.
+- **Backend & CLI (`src/server/app.py`, `src/run.py`, `src/llm_recipe.py`):** FastAPI server hosting the SPA plus REST and WebSocket endpoints, unified CLI pipeline, and structured recipe generation (`gemini-4-hydrogen`).
+
+---
+
+## 🏗️ System Architecture
+
+```text
++-----------------------------------------------------------------------+
+|  Browser / Mobile PWA Client (React 19 + Vite SPA in frontend/)       |
+|  - Live Camera (getUserMedia rear/front) · Photo & Video Upload       |
+|  - Mode Switcher (gemini_vision default, hybrid_gemini, yolov8, ...)  |
+|  - Live HUD Overlay · API Status Badge · localStorage Basket Sync     |
++-------------------------------+---------------------------------------+
+                                |  WS /ws/scan  &  HTTP /api/v1/*
+                                v
++-----------------------------------------------------------------------+
+|  FastAPI Server & SPA Host (src/server/app.py)                        |
+|  - Serves frontend/dist/ (/, /assets, /icons, /manifest.webmanifest)  |
+|  - Session Manager (confirmed inventory, exclusions, calories)        |
++-------------------------------+---------------------------------------+
+                                |
+          +---------------------+---------------------+
+          v                                           v
++------------------------------------+     +------------------------------+
+|  CV Detection & Tracking           |     |  Zero-Waste Recipe LLM       |
+|  - preprocess.py (CLAHE+640px)     |     |  - llm_recipe.py             |
+|  - gemini_detector.py              |     |  - Gemini Interactions API   |
+|    (Interactions API + fallback)   |     |    (gemini-4-hydrogen)       |
+|  - yolo_detector.py (YOLOv8n)      |     |  - Offline template fallback |
+|  - baseline_detector.py (ORB/SIFT) |     +------------------------------+
+|  - temporal_tracker.py (NMS+vote)  |
++------------------------------------+
+```
 
 ---
 
 ## 📂 Repository Structure
 ```text
 stock2stove/
-├── README.md                        # Project overview, results, and run guide
+├── README.md                        # Project overview, architecture, quickstart, and benchmarks
 ├── requirements.txt                 # Python dependencies
-├── run_server.ps1                   # FastAPI server launcher (with optional ADB USB reverse)
-├── app-debug.apk                    # Prebuilt Android debug APK
+├── run_server.ps1                   # Windows PowerShell launcher (builds SPA + starts FastAPI)
+├── run_server.sh                    # Bash launcher (venv setup, SPA build + FastAPI server)
 ├── images/
-│   └── logo.png                     # Team Kaggleing logo
-├── android/                         # Native Kotlin + Jetpack Compose + CameraX Android app
+│   └── logo.png                     # Team Kaggleing logo & PWA icon source
+├── frontend/
+│   ├── index.html                   # SPA entry HTML with PWA & mobile viewport metadata
+│   ├── package.json                 # React 19 + Vite scripts and dependencies
+│   ├── vite.config.js               # Vite build & /api /ws dev proxy configuration
+│   ├── public/                      # PWA manifest.webmanifest, favicon.png, icons/
+│   ├── src/
+│   │   ├── App.jsx                  # Root SPA shell, basket persistence & session sync
+│   │   ├── api/client.js            # REST & WebSocket client for FastAPI backend
+│   │   ├── components/              # ScannerView, BasketView, RecipesView, DiagnosticsModal, HeaderBar
+│   │   └── constants/catalog.js     # Detector modes & 8-class catalog metadata
+│   └── dist/                        # Production Vite bundle served by FastAPI
 ├── data/
 │   ├── dataset_yolo/                # Unified 8-class YOLO dataset & pantry_negatives/
 │   ├── raw_home/                    # Demo pan clip (demo_pantry_pan.mp4)
@@ -57,14 +101,15 @@ stock2stove/
 ├── src/
 │   ├── run.py                       # Unified CLI pipeline (preprocess -> infer -> postprocess -> render)
 │   ├── evaluate.py                  # Held-out benchmark & Milestone 4 artifact generator
-│   ├── llm_recipe.py                # Zero-waste recipe generator from confirmed inventory
-│   ├── cv/                          # Preprocessing, YOLOv8, ORB/SIFT baselines, Gemini, tracker
-│   ├── server/                      # FastAPI app, Web UI (/), REST & /ws/scan WebSocket endpoints
+│   ├── llm_recipe.py                # Zero-waste recipe generator via Gemini Interactions API
+│   ├── cv/                          # Preprocessing, Gemini Vision, YOLOv8, ORB/SIFT, temporal tracker
+│   ├── server/                      # FastAPI app (SPA + REST + /ws/scan), config, schemas, sessions
 │   └── training/                    # Dataset merging, auto-labeling, YOLOv8 training & eval scripts
 ├── tests/
 │   ├── test_phase1.py               # Backend & CV pipeline unit/integration tests
 │   ├── test_phase2.py               # Phase 2 integration tests
-│   └── run_e2e_tests.ps1            # Android Gradle unit & E2E test runner
+│   ├── test_reeval.py               # Gemini Vision, calorie & SPA backend tests
+│   └── run_e2e_tests.ps1            # Backend pytest + frontend Vite production build runner
 ├── outputs/                         # Evaluation metrics, confusion matrix, spike & run outputs
 └── docs/
     ├── milestone3/                  # Milestone 3 (cp3-core) report & evaluation artifacts
@@ -83,28 +128,53 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 ```
+Install Node.js (`npm`) to build or develop `frontend/`. Both `run_server.ps1` and `./run_server.sh` install `frontend/node_modules` and rebuild `frontend/dist` automatically when needed.
 
-### 2. Launch the FastAPI Server & Web Dashboard
+### 2. Configure Gemini API Key (Recommended)
+Set `GEMINI_API_KEY` to enable live **Gemini Vision** detection (`gemini-4-hydrogen`) and **Gemini Interactions API** recipe generation. Without a key, the server runs in explicit `Offline Fallback` mode using local YOLOv8n and offline recipe templates.
+```powershell
+$env:GEMINI_API_KEY = "your-gemini-api-key"
+```
+Optional overrides:
+- `STOCK2STOVE_GEMINI_VISION_MODEL` (default `gemini-4-hydrogen`; supports e.g. `gemini-3.5-flash-lite` for ultra-low latency)
+- `STOCK2STOVE_GEMINI_RECIPE_MODEL` (default `gemini-4-hydrogen`)
+- `STOCK2STOVE_GEMINI_THINKING_LEVEL` (`minimal`, `low`, `medium`, `high`)
+
+### 3. Launch the Web App SPA & FastAPI Server
+Windows (PowerShell):
 ```powershell
 .\run_server.ps1
 ```
-Or directly via Python:
+Linux / macOS (Bash):
+```bash
+./run_server.sh
+```
+Hot-reload development mode (FastAPI on `:8000` + Vite dev server on `:5173`):
+```powershell
+.\run_server.ps1 -Dev
+```
+Or launch FastAPI directly with a prebuilt `frontend/dist`:
 ```powershell
 python src/server/app.py
 ```
-- **Web UI:** `http://127.0.0.1:8000/`
-- **API Endpoints:** `GET /api/v1/health`, `POST /api/v1/scan/image`, `POST /api/v1/scan/video`, `POST /api/v1/recipes/generate`, `POST /api/v1/session/reset`, and `WS /ws/scan`.
+- **Web App SPA (PWA):** `http://127.0.0.1:8000/`
+- **API & WebSocket Endpoints:** `GET /api/v1/health`, `POST /api/v1/ui/detect`, `POST /api/v1/scan/image`, `POST /api/v1/scan/video`, `POST /api/v1/recipes/generate`, `POST /api/v1/session/reset`, `POST /api/v1/session/items/delete`, `POST /api/v1/session/items/restore`, `DELETE /api/v1/session/items/{class_id}`, and `WS /ws/scan`.
 
-### 3. Run the CLI Pipeline (`src/run.py`)
+### 4. Run the CLI Pipeline (`src/run.py`)
 ```powershell
 python src/run.py --input data/test/ --output outputs/run_latest/
 ```
-Supports image folders, single images, video files (e.g. `--input demo.mp4`), or live webcam (`--webcam 0`), with `--mode` (`yolov8`, `orb_baseline`, `sift_baseline`, `yolo_world`, `gemini_vision`, `hybrid_gemini`) and `--generate-recipes`.
+Supports image folders, single images, video files (e.g. `--input demo.mp4`), or live webcam (`--webcam 0`), with `--mode` (`gemini_vision`, `hybrid_gemini`, `yolov8`, `orb_baseline`, `sift_baseline`, `yolo_world`) and `--generate-recipes`.
 
-### 4. Reproduce Evaluation & Run Tests
+### 5. Reproduce Evaluation & Run Tests
 ```powershell
 python src/evaluate.py --split test --weights models/best.pt
 .\tests\run_e2e_tests.ps1
+```
+To run checks individually:
+```powershell
+python -m pytest -v --basetemp=.pytest_tmp
+cd frontend && npm run build
 ```
 
 ---

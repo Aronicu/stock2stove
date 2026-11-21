@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import logging
 import math
 import os
 import sys
@@ -19,9 +20,12 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.cv.baseline_detector import compute_box_iou, load_templates_for_mode, run_baseline_detection
+from src.cv.gemini_detector import run_gemini_detection, run_hybrid_gemini_detection
 from src.cv.preprocess import preprocess_frame
 from src.cv.yolo_detector import MODEL_REGISTRY, load_ultralytics_detector, run_yolo_detection
 from src.server.config import UNIFIED_CLASSES, normalize_class_id
+
+logger = logging.getLogger(__name__)
 
 
 def extract_bbox_xyxy(box_item):
@@ -388,7 +392,7 @@ def compute_per_class_pr(pred_boxes, gt_boxes, iou_threshold=0.50):
     return precision_per_class, recall_per_class
 
 
-def evaluate_false_meat_rate(data_yaml_path, conf_threshold=0.50):
+def evaluate_false_meat_rate(data_yaml_path, conf_threshold=0.50, include_gemini=False):
     samples = load_yolo_test_split(data_yaml_path)
     checked_names = set()
     eval_items = []
@@ -429,29 +433,68 @@ def evaluate_false_meat_rate(data_yaml_path, conf_threshold=0.50):
                 checked_names.add(fname)
                 eval_items.append((img_path.name, bgr))
 
-    false_meat_images = []
+    has_gemini_key = bool((os.getenv("GEMINI_API_KEY") or "").strip())
+    effective_include_gemini = bool(include_gemini) and has_gemini_key
+    if include_gemini and not has_gemini_key:
+        notice = "GEMINI_API_KEY is not set; skipping gemini_vision and hybrid_gemini false-meat evaluation."
+        logger.warning(notice)
+        print(notice)
+
+    prepped_items = []
     for name, bgr in eval_items:
         prep = preprocess_frame(bgr, enable_clahe=True, target_size=640)
-        dets, _ = run_yolo_detection(
-            prep["letterboxed_bgr"],
-            mode="yolov8",
-            conf_threshold=float(conf_threshold),
-        )
-        found_meat = False
-        for det in dets:
-            if det.get("class_id") == "canned_tuna_meat":
-                found_meat = True
-                break
-        if found_meat:
-            false_meat_images.append(name)
+        prepped_items.append((name, prep["letterboxed_bgr"]))
 
-    total = len(eval_items)
-    rate = round(float(len(false_meat_images)) / float(total), 4) if total > 0 else 0.0
+    eval_detectors = ["yolov8n_finetuned"]
+    if effective_include_gemini:
+        eval_detectors.extend(["gemini_vision", "hybrid_gemini"])
+
+    total = len(prepped_items)
+    false_meat_by_detector = {}
+
+    for det_name in eval_detectors:
+        false_meat_images = []
+        for name, letterboxed in prepped_items:
+            if det_name == "gemini_vision":
+                dets, _ = run_gemini_detection(
+                    letterboxed,
+                    conf_threshold=float(conf_threshold),
+                    use_cache=False,
+                )
+            elif det_name == "hybrid_gemini":
+                dets, _ = run_hybrid_gemini_detection(
+                    letterboxed,
+                    conf_threshold=float(conf_threshold),
+                )
+            else:
+                dets, _ = run_yolo_detection(
+                    letterboxed,
+                    mode="yolov8",
+                    conf_threshold=float(conf_threshold),
+                )
+            found_meat = False
+            for det in dets:
+                if det.get("class_id") == "canned_tuna_meat":
+                    found_meat = True
+                    break
+            if found_meat:
+                false_meat_images.append(name)
+
+        det_rate = round(float(len(false_meat_images)) / float(total), 4) if total > 0 else 0.0
+        false_meat_by_detector[det_name] = {
+            "false_meat_rate": det_rate,
+            "false_meat_count": len(false_meat_images),
+            "total_pantry_negatives": total,
+            "false_meat_images": false_meat_images,
+        }
+
+    yolo_stats = false_meat_by_detector["yolov8n_finetuned"]
     return {
-        "false_meat_rate": rate,
-        "false_meat_count": len(false_meat_images),
-        "total_pantry_negatives": total,
-        "false_meat_images": false_meat_images,
+        "false_meat_rate": yolo_stats["false_meat_rate"],
+        "false_meat_count": yolo_stats["false_meat_count"],
+        "total_pantry_negatives": yolo_stats["total_pantry_negatives"],
+        "false_meat_images": yolo_stats["false_meat_images"],
+        "false_meat_by_detector": false_meat_by_detector,
     }
 
 
@@ -460,23 +503,54 @@ def render_benchmark_chart(rows, output_plot):
 
     splits = ["normal", "shadowed_sub100lux", "occluded_20_50pct"]
     split_labels = ["Normal", "Shadowed (<100 lux)", "Occluded (20-50%)"]
-    detectors = ["orb_baseline", "sift_baseline", "yolov8n_finetuned"]
+
+    preferred_order = [
+        "orb_baseline",
+        "sift_baseline",
+        "yolov8n_finetuned",
+        "gemini_vision",
+        "hybrid_gemini",
+    ]
+    seen_detectors = set()
+    present_order = []
+    for row in rows:
+        det_name = row.get("detector")
+        if det_name and det_name not in seen_detectors:
+            seen_detectors.add(det_name)
+            present_order.append(det_name)
+
+    detectors = []
+    for det_name in preferred_order:
+        if det_name in seen_detectors:
+            detectors.append(det_name)
+    for det_name in present_order:
+        if det_name not in detectors:
+            detectors.append(det_name)
+    if not detectors:
+        detectors = ["orb_baseline", "sift_baseline", "yolov8n_finetuned"]
+
     detector_labels = {
         "orb_baseline": "ORB Baseline",
         "sift_baseline": "SIFT Baseline",
         "yolov8n_finetuned": "YOLOv8n Fine-Tuned",
+        "gemini_vision": "Gemini Vision",
+        "hybrid_gemini": "Hybrid Gemini",
     }
     colors = {
         "orb_baseline": "steelblue",
         "sift_baseline": "darkorange",
         "yolov8n_finetuned": "seagreen",
+        "gemini_vision": "mediumpurple",
+        "hybrid_gemini": "crimson",
     }
+    fallback_palette = ["teal", "goldenrod", "slategray", "orchid"]
 
     lookup = {}
     for row in rows:
         lookup[(row["split"], row["detector"])] = row
 
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    fig_size = (15, 9.5) if len(detectors) > 3 else (13, 9)
+    fig, axes = plt.subplots(2, 2, figsize=fig_size)
     panels = [
         (axes[0, 0], "mAP50", "mAP@0.50", (0.0, 1.08)),
         (axes[0, 1], "recall", "Recall", (0.0, 1.08)),
@@ -485,7 +559,9 @@ def render_benchmark_chart(rows, output_plot):
     ]
 
     x = np.arange(len(splits))
-    bar_width = 0.25
+    n_detectors = max(1, len(detectors))
+    bar_width = min(0.25, 0.80 / float(n_detectors))
+    ann_font_size = 7 if n_detectors >= 5 else 8
 
     for ax, metric_key, title, ylim in panels:
         for d_idx, det in enumerate(detectors):
@@ -493,13 +569,15 @@ def render_benchmark_chart(rows, output_plot):
             for sp in splits:
                 entry = lookup.get((sp, det), {})
                 vals.append(float(entry.get(metric_key, 0.0)))
-            offset = (d_idx - 1) * bar_width
+            offset = (float(d_idx) - (float(n_detectors - 1) / 2.0)) * bar_width
+            label = detector_labels.get(det, det.replace("_", " ").title())
+            color = colors.get(det, fallback_palette[d_idx % len(fallback_palette)])
             bars = ax.bar(
                 x + offset,
                 vals,
                 bar_width,
-                label=detector_labels[det],
-                color=colors[det],
+                label=label,
+                color=color,
                 edgecolor="black",
                 linewidth=0.5,
             )
@@ -513,7 +591,7 @@ def render_benchmark_chart(rows, output_plot):
                     textcoords="offset points",
                     ha="center",
                     va="bottom",
-                    fontsize=8,
+                    fontsize=ann_font_size,
                 )
 
         ax.set_title(title, fontsize=11, fontweight="bold")
@@ -524,7 +602,11 @@ def render_benchmark_chart(rows, output_plot):
             ax.set_ylim(ylim[0], ylim[1])
         ax.legend(fontsize=8, loc="best")
 
-    fig.suptitle("Stock2Stove Phase 2 Comparative Benchmark: Classical Baselines vs YOLOv8n", fontsize=13, fontweight="bold")
+    if "gemini_vision" in detectors or "hybrid_gemini" in detectors:
+        chart_title = "Stock2Stove Comparative Benchmark: Classical Baselines, YOLOv8n & Gemini Vision"
+    else:
+        chart_title = "Stock2Stove Phase 2 Comparative Benchmark: Classical Baselines vs YOLOv8n"
+    fig.suptitle(chart_title, fontsize=13, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(output_plot, dpi=150)
     plt.close(fig)
@@ -537,6 +619,7 @@ def run_benchmark_suite(
     output_plot,
     conf_threshold=0.45,
     iou_threshold=0.50,
+    include_gemini=False,
 ):
     samples = load_yolo_test_split(data_yaml_path)
     if not samples:
@@ -579,6 +662,15 @@ def run_benchmark_suite(
     splits_order = ["normal", "shadowed_sub100lux", "occluded_20_50pct"]
     detectors_order = ["orb_baseline", "sift_baseline", "yolov8n_finetuned"]
 
+    has_gemini_key = bool((os.getenv("GEMINI_API_KEY") or "").strip())
+    effective_include_gemini = bool(include_gemini) and has_gemini_key
+    if effective_include_gemini:
+        detectors_order.extend(["gemini_vision", "hybrid_gemini"])
+    elif include_gemini and not has_gemini_key:
+        notice = "GEMINI_API_KEY is not set; skipping gemini_vision and hybrid_gemini benchmark evaluation."
+        logger.warning(notice)
+        print(notice)
+
     rows = []
     by_split = {}
 
@@ -590,20 +682,21 @@ def run_benchmark_suite(
             all_preds = []
             latencies_ms = []
 
-            for warm_idx in range(min(3, len(images_list))):
-                _, warm_img = images_list[warm_idx]
-                if detector_name in ("orb_baseline", "sift_baseline"):
-                    run_baseline_detection(
-                        warm_img,
-                        mode=detector_name,
-                        conf_threshold=float(conf_threshold),
-                    )
-                else:
-                    run_yolo_detection(
-                        warm_img,
-                        mode="yolov8",
-                        conf_threshold=float(conf_threshold),
-                    )
+            if detector_name not in ("gemini_vision", "hybrid_gemini"):
+                for warm_idx in range(min(3, len(images_list))):
+                    _, warm_img = images_list[warm_idx]
+                    if detector_name in ("orb_baseline", "sift_baseline"):
+                        run_baseline_detection(
+                            warm_img,
+                            mode=detector_name,
+                            conf_threshold=float(conf_threshold),
+                        )
+                    else:
+                        run_yolo_detection(
+                            warm_img,
+                            mode="yolov8",
+                            conf_threshold=float(conf_threshold),
+                        )
 
             for filename, img_bgr in images_list:
                 t_start = time.perf_counter()
@@ -611,6 +704,17 @@ def run_benchmark_suite(
                     dets, _ = run_baseline_detection(
                         img_bgr,
                         mode=detector_name,
+                        conf_threshold=float(conf_threshold),
+                    )
+                elif detector_name == "gemini_vision":
+                    dets, _ = run_gemini_detection(
+                        img_bgr,
+                        conf_threshold=float(conf_threshold),
+                        use_cache=False,
+                    )
+                elif detector_name == "hybrid_gemini":
+                    dets, _ = run_hybrid_gemini_detection(
+                        img_bgr,
                         conf_threshold=float(conf_threshold),
                     )
                 else:
@@ -680,7 +784,11 @@ def run_benchmark_suite(
             json_entry["canned_tuna_meat_precision"] = precision_per_class.get("canned_tuna_meat", 0.0)
             by_split[split_name][detector_name] = json_entry
 
-    false_meat_eval = evaluate_false_meat_rate(data_yaml_path, conf_threshold=float(conf_threshold))
+    false_meat_eval = evaluate_false_meat_rate(
+        data_yaml_path,
+        conf_threshold=float(conf_threshold),
+        include_gemini=effective_include_gemini,
+    )
     normal_yolo_entry = by_split.get("normal", {}).get("yolov8n_finetuned", {})
     tuna_precision = float(normal_yolo_entry.get("canned_tuna_meat_precision", 0.0))
 
@@ -713,8 +821,10 @@ def run_benchmark_suite(
         "num_gt_boxes": len(all_gts),
         "conf_threshold": float(conf_threshold),
         "iou_threshold": float(iou_threshold),
+        "include_gemini": bool(effective_include_gemini),
         "weights_path": str(loaded_weights_path) if loaded_weights_path else "opencv_hybrid_fallback",
         "false_meat_rate": false_meat_eval["false_meat_rate"],
+        "false_meat_by_detector": false_meat_eval["false_meat_by_detector"],
         "canned_tuna_meat_precision": tuna_precision,
         "false_meat_evaluation": false_meat_eval,
         "splits": splits_order,
@@ -741,6 +851,7 @@ def main():
     parser.add_argument("--output-plot", type=str, default="outputs/phase2_benchmark_comparison.png")
     parser.add_argument("--conf", type=float, default=0.45)
     parser.add_argument("--iou", type=float, default=0.50)
+    parser.add_argument("--include-gemini", action="store_true")
     args = parser.parse_args()
 
     summary = run_benchmark_suite(
@@ -750,8 +861,18 @@ def main():
         output_plot=args.output_plot,
         conf_threshold=args.conf,
         iou_threshold=args.iou,
+        include_gemini=args.include_gemini,
     )
-    print(json.dumps({"weights_path": summary["weights_path"], "rows": len(summary["results"])}, indent=2))
+    print(
+        json.dumps(
+            {
+                "weights_path": summary["weights_path"],
+                "detectors": summary["detectors"],
+                "rows": len(summary["results"]),
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

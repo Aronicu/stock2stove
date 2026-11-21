@@ -1,4 +1,5 @@
 from src.cv.temporal_tracker import (
+    build_confirmed_inventory_from_window,
     create_tracker_state,
     reset_tracker_state,
     update_temporal_tracker,
@@ -8,7 +9,6 @@ from src.server.config import (
     NMS_IOU_THRESHOLD,
     TEMPORAL_MIN_HITS,
     TEMPORAL_WINDOW_SIZE,
-    get_display_name,
     is_valid_food_class,
     normalize_class_id,
 )
@@ -77,53 +77,12 @@ def compute_session_confirmed_inventory(session):
     window = tracker.get("window", [])
     min_hits = max(1, int(session.get("last_min_hits", tracker.get("min_hits", TEMPORAL_MIN_HITS))))
     fast_confirm_conf = session.get("last_fast_confirm_conf")
-
-    aggregate = {}
-    for frame_entry in window:
-        if not isinstance(frame_entry, dict):
-            continue
-        for raw_cls, info in frame_entry.items():
-            cls_id = normalize_class_id(raw_cls)
-            if not is_valid_food_class(cls_id) or cls_id in excluded:
-                continue
-            info_crop = info.get("crop_jpeg_b64")
-            cnt_val = max(1, int(info.get("count", 1)))
-            conf_val = float(info.get("max_conf", 0.5))
-            disp = info.get("display_name") or get_display_name(cls_id)
-            if cls_id not in aggregate:
-                aggregate[cls_id] = {
-                    "hits": 1,
-                    "counts": [cnt_val],
-                    "max_conf": conf_val,
-                    "display_name": disp,
-                    "crop_jpeg_b64": info_crop,
-                }
-            else:
-                aggregate[cls_id]["hits"] += 1
-                aggregate[cls_id]["counts"].append(cnt_val)
-                if conf_val > aggregate[cls_id]["max_conf"]:
-                    aggregate[cls_id]["max_conf"] = conf_val
-                    if info_crop:
-                        aggregate[cls_id]["crop_jpeg_b64"] = info_crop
-                elif not aggregate[cls_id].get("crop_jpeg_b64") and info_crop:
-                    aggregate[cls_id]["crop_jpeg_b64"] = info_crop
-
-    confirmed_inventory = []
-    for cls_id in sorted(list(aggregate.keys())):
-        stats = aggregate[cls_id]
-        is_hit_confirmed = stats["hits"] >= min_hits
-        is_fast_confirmed = fast_confirm_conf is not None and float(stats["max_conf"]) >= float(fast_confirm_conf)
-        if is_hit_confirmed or is_fast_confirmed:
-            counts_sorted = sorted(stats["counts"])
-            median_count = counts_sorted[len(counts_sorted) // 2]
-            confirmed_inventory.append({
-                "class_id": cls_id,
-                "display_name": stats["display_name"],
-                "count": int(median_count),
-                "max_conf": round(float(stats["max_conf"]), 2),
-                "crop_jpeg_b64": stats.get("crop_jpeg_b64"),
-            })
-    return confirmed_inventory
+    return build_confirmed_inventory_from_window(
+        window,
+        min_hits=min_hits,
+        fast_confirm_conf=fast_confirm_conf,
+        excluded_classes=excluded,
+    )
 
 
 def delete_session_item(session_id="default", class_id=""):

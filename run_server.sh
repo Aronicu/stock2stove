@@ -3,7 +3,6 @@ set -euo pipefail
 
 BIND_HOST="0.0.0.0"
 PORT="8000"
-SKIP_ADB_REVERSE=0
 BUILD_FRONTEND=0
 SKIP_FRONTEND=0
 DEV_MODE=0
@@ -12,7 +11,6 @@ print_usage() {
     echo "Usage: ./run_server.sh [options]"
     echo "  --host <addr>         Bind host (default: 0.0.0.0)"
     echo "  --port <port>         Bind port (default: 8000)"
-    echo "  --skip-adb-reverse    Skip ADB USB reverse port forwarding"
     echo "  --build-frontend      Force rebuild of frontend/dist"
     echo "  --skip-frontend       Skip frontend dependency check and build"
     echo "  --dev                 Run FastAPI backend and Vite dev server together"
@@ -28,10 +26,6 @@ while [ "$#" -gt 0 ]; do
         --port)
             PORT="$2"
             shift 2
-            ;;
-        --skip-adb-reverse)
-            SKIP_ADB_REVERSE=1
-            shift
             ;;
         --build-frontend)
             BUILD_FRONTEND=1
@@ -138,25 +132,6 @@ if [ "$SKIP_FRONTEND" -eq 0 ] && [ -f "$FRONTEND_PKG" ]; then
                 echo "[FRONTEND] Building React SPA in frontend/dist"
                 (cd "$FRONTEND_DIR" && npm run build)
             fi
-        fi
-    fi
-fi
-
-if [ "$SKIP_ADB_REVERSE" -eq 0 ]; then
-    ADB_BIN=""
-    if command -v adb >/dev/null 2>&1; then
-        ADB_BIN="$(command -v adb)"
-    elif [ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]; then
-        ADB_BIN="$HOME/Library/Android/sdk/platform-tools/adb"
-    elif [ -x "$HOME/Android/Sdk/platform-tools/adb" ]; then
-        ADB_BIN="$HOME/Android/Sdk/platform-tools/adb"
-    fi
-
-    if [ -n "$ADB_BIN" ]; then
-        if "$ADB_BIN" reverse "tcp:${PORT}" "tcp:${PORT}" >/dev/null 2>&1; then
-            echo "[ADB] USB reverse tunnel active on tcp:${PORT}"
-        else
-            echo "[ADB] No USB Android device detected; continuing with LAN/localhost mode."
         fi
     fi
 fi

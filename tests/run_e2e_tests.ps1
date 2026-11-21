@@ -1,110 +1,96 @@
 $ErrorActionPreference = "Stop"
 
-if (-not $env:JAVA_HOME -or -not (Test-Path $env:JAVA_HOME)) {
-    $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Split-Path -Parent $ScriptDir
+if (-not $ProjectRoot) {
+    $ProjectRoot = (Get-Location).Path
 }
+Set-Location $ProjectRoot
+$env:PYTHONPATH = $ProjectRoot
 
-$javaBin = Join-Path $env:JAVA_HOME "bin"
-if (Test-Path $javaBin) {
-    $env:PATH = "$javaBin;$env:PATH"
+$PythonBin = "python"
+$VenvWinPython = Join-Path $ProjectRoot "venv\Scripts\python.exe"
+$VenvUnixPython = Join-Path $ProjectRoot "venv\bin\python"
+if (Test-Path $VenvWinPython) {
+    $PythonBin = $VenvWinPython
+} elseif (Test-Path $VenvUnixPython) {
+    $PythonBin = $VenvUnixPython
 }
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path -Parent $scriptDir
-if (-not $projectRoot) {
-    $projectRoot = Get-Location
-}
-
-$androidDir = Join-Path $projectRoot "android"
-$gradlewBat = Join-Path $androidDir "gradlew.bat"
-$testBaseDir = Join-Path $androidDir "app\src\test\java\com\kaggleing\stock2stove\e2e"
 
 Write-Host "=========================================================="
 Write-Host " STOCK-TO-STOVE E2E TEST RUNNER"
-Write-Host " JAVA_HOME: $env:JAVA_HOME"
-Write-Host " ANDROID_DIR: $androidDir"
+Write-Host " PROJECT_ROOT: $ProjectRoot"
+Write-Host " PYTHON_BIN:   $PythonBin"
 Write-Host "=========================================================="
 
-$tierFiles = @{
-    "Tier 1 (Feature Coverage)" = Join-Path $testBaseDir "Tier1FeatureCoverageTest.kt"
-    "Tier 2 (Boundary & Corner)" = Join-Path $testBaseDir "Tier2BoundaryAndCornerTest.kt"
-    "Tier 3 (Cross-Feature Pairwise)" = Join-Path $testBaseDir "Tier3CrossFeatureTest.kt"
-    "Tier 4 (Real-World Workloads)" = Join-Path $testBaseDir "Tier4RealWorldWorkloadTest.kt"
+Write-Host "[1/2] Running backend pytest suite..."
+& $PythonBin -m pytest -v --basetemp=.pytest_tmp
+if ($LASTEXITCODE -ne 0) {
+    [Console]::Error.WriteLine("Backend pytest suite failed with exit code $LASTEXITCODE")
+    exit $LASTEXITCODE
 }
 
-$totalMethodsFound = 0
-$allFilesPresent = $true
+$FrontendDir = Join-Path $ProjectRoot "frontend"
+$FrontendPkg = Join-Path $FrontendDir "package.json"
+$FrontendNodeModules = Join-Path $FrontendDir "node_modules"
+$FrontendDistDir = Join-Path $FrontendDir "dist"
 
-foreach ($tierName in $tierFiles.Keys) {
-    $path = $tierFiles[$tierName]
-    if (Test-Path $path) {
-        $content = Get-Content $path -Raw
-        $matches = [regex]::Matches($content, "@Test\s+fun\s+([a-zA-Z0-9_]+)")
-        $count = $matches.Count
-        $totalMethodsFound += $count
-        Write-Host "[$tierName] Present: $count test methods found"
-    } else {
-        Write-Host "[$tierName] Pending creation or parallel milestone scaffold"
-        $allFilesPresent = $false
-    }
+if (-not (Test-Path $FrontendPkg)) {
+    [Console]::Error.WriteLine("Missing frontend/package.json at $FrontendPkg")
+    exit 1
 }
 
-if (Test-Path $gradlewBat) {
-    Write-Host "Executing Gradle unit tests via gradlew.bat..."
-    Push-Location $androidDir
+$NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
+if (-not $NpmCmd) {
+    [Console]::Error.WriteLine("npm is required to verify the frontend build.")
+    exit 1
+}
+
+if (-not (Test-Path $FrontendNodeModules)) {
+    Write-Host "[FRONTEND] Installing npm dependencies in frontend/..."
+    Push-Location $FrontendDir
     try {
-        & $gradlewBat testDebugUnitTest --no-daemon
-        $gradleExit = $LASTEXITCODE
+        & $NpmCmd.Source install
+        if ($LASTEXITCODE -ne 0) {
+            [Console]::Error.WriteLine("npm install failed with exit code $LASTEXITCODE")
+            exit $LASTEXITCODE
+        }
     } finally {
         Pop-Location
     }
-
-    if ($gradleExit -ne 0) {
-        Write-Error "Gradle unit test execution failed with exit code $gradleExit"
-        exit $gradleExit
-    }
-
-    $xmlResultsDir = Join-Path $androidDir "app\build\test-results\testDebugUnitTest"
-    if (Test-Path $xmlResultsDir) {
-        $xmlFiles = Get-ChildItem -Path $xmlResultsDir -Filter "*.xml"
-        $totalPassed = 0
-        $totalFailures = 0
-        $totalErrors = 0
-        $totalSkipped = 0
-
-        foreach ($xmlFile in $xmlFiles) {
-            [xml]$xml = Get-Content $xmlFile.FullName
-            $testsuite = $xml.testsuite
-            if ($testsuite) {
-                $tests = [int]$testsuite.tests
-                $failures = [int]$testsuite.failures
-                $errors = [int]$testsuite.errors
-                $skipped = [int]$testsuite.skipped
-                $passed = $tests - $failures - $errors - $skipped
-                $totalPassed += $passed
-                $totalFailures += $failures
-                $totalErrors += $errors
-                $totalSkipped += $skipped
-            }
-        }
-
-        Write-Host "----------------------------------------------------------"
-        Write-Host " E2E Test Execution Summary:"
-        Write-Host " Passed:   $totalPassed"
-        Write-Host " Failures: $totalFailures"
-        Write-Host " Errors:   $totalErrors"
-        Write-Host " Skipped:  $totalSkipped"
-        Write-Host "----------------------------------------------------------"
-
-        if ($totalFailures -gt 0 -or $totalErrors -gt 0) {
-            Write-Error "Test suite reported failures."
-            exit 1
-        }
-    }
-} else {
-    Write-Host "Note: gradlew.bat not found at $gradlewBat"
-    Write-Host "Test source files verified directly."
 }
 
-Write-Host "E2E Test Runner completed successfully."
+Write-Host "[2/2] Running frontend Vite production build..."
+Push-Location $FrontendDir
+try {
+    & $NpmCmd.Source run build
+    if ($LASTEXITCODE -ne 0) {
+        [Console]::Error.WriteLine("npm run build failed with exit code $LASTEXITCODE")
+        exit $LASTEXITCODE
+    }
+} finally {
+    Pop-Location
+}
+
+$ExpectedDistFiles = @(
+    "index.html",
+    "manifest.webmanifest",
+    "icons\icon-192.png",
+    "icons\icon-512.png"
+)
+foreach ($RelPath in $ExpectedDistFiles) {
+    $FullPath = Join-Path $FrontendDistDir $RelPath
+    if (-not (Test-Path $FullPath)) {
+        [Console]::Error.WriteLine("Expected built frontend artifact not found: $FullPath")
+        exit 1
+    }
+}
+
+$AssetsDir = Join-Path $FrontendDistDir "assets"
+if (-not (Test-Path $AssetsDir)) {
+    [Console]::Error.WriteLine("Expected built frontend assets directory not found: $AssetsDir")
+    exit 1
+}
+
+Write-Host "E2E verification completed successfully (backend pytest + frontend build)."
 exit 0
