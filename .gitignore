@@ -24,5 +24,7 @@ desktop.ini
 outputs/run_*
 outputs/eval_video/
 outputs/demo_annotated*
+node_modules/
+frontend/node_modules/
 
 
